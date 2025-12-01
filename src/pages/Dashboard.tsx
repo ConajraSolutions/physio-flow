@@ -1,6 +1,6 @@
 import { MainLayout } from "@/components/layout/MainLayout";
 import { PageHeader } from "@/components/layout/PageHeader";
-import { CalendarView } from "@/components/dashboard/CalendarView";
+import { WeeklyCalendar } from "@/components/scheduling/WeeklyCalendar";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 
@@ -9,7 +9,7 @@ export default function Dashboard() {
     <MainLayout>
       <PageHeader
         title="Dashboard"
-        description="Welcome back, Dr. Smith. Here's your schedule for the next 3 days."
+        description="Welcome back, Dr. Smith. Here's your weekly schedule."
         actions={
           <Button>
             <Plus className="h-4 w-4 mr-2" />
@@ -18,7 +18,7 @@ export default function Dashboard() {
         }
       />
 
-      <CalendarView />
+      <WeeklyCalendar />
     </MainLayout>
   );
 }
