@@ -14,7 +14,343 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      appointments: {
+        Row: {
+          appointment_date: string
+          appointment_type: string
+          clinician_name: string
+          condition: string | null
+          created_at: string
+          end_time: string
+          id: string
+          notes: string | null
+          patient_id: string
+          start_time: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          appointment_date: string
+          appointment_type: string
+          clinician_name: string
+          condition?: string | null
+          created_at?: string
+          end_time: string
+          id?: string
+          notes?: string | null
+          patient_id: string
+          start_time: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          appointment_date?: string
+          appointment_type?: string
+          clinician_name?: string
+          condition?: string | null
+          created_at?: string
+          end_time?: string
+          id?: string
+          notes?: string | null
+          patient_id?: string
+          start_time?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointments_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      exercises: {
+        Row: {
+          body_area: string
+          created_at: string
+          description: string | null
+          difficulty: string
+          goal: string
+          id: string
+          image_url: string | null
+          instructions: string | null
+          name: string
+          updated_at: string
+          video_url: string | null
+        }
+        Insert: {
+          body_area: string
+          created_at?: string
+          description?: string | null
+          difficulty?: string
+          goal: string
+          id?: string
+          image_url?: string | null
+          instructions?: string | null
+          name: string
+          updated_at?: string
+          video_url?: string | null
+        }
+        Update: {
+          body_area?: string
+          created_at?: string
+          description?: string | null
+          difficulty?: string
+          goal?: string
+          id?: string
+          image_url?: string | null
+          instructions?: string | null
+          name?: string
+          updated_at?: string
+          video_url?: string | null
+        }
+        Relationships: []
+      }
+      patients: {
+        Row: {
+          created_at: string
+          date_of_birth: string | null
+          email: string
+          first_name: string
+          id: string
+          insurance_id: string | null
+          insurance_provider: string | null
+          last_name: string
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          date_of_birth?: string | null
+          email: string
+          first_name: string
+          id?: string
+          insurance_id?: string | null
+          insurance_provider?: string | null
+          last_name: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          date_of_birth?: string | null
+          email?: string
+          first_name?: string
+          id?: string
+          insurance_id?: string | null
+          insurance_provider?: string | null
+          last_name?: string
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      session_summaries: {
+        Row: {
+          assessment: string | null
+          created_at: string
+          edit_type: string
+          full_summary: string | null
+          id: string
+          objective: string | null
+          plan: string | null
+          session_id: string
+          subjective: string | null
+          version: number
+        }
+        Insert: {
+          assessment?: string | null
+          created_at?: string
+          edit_type?: string
+          full_summary?: string | null
+          id?: string
+          objective?: string | null
+          plan?: string | null
+          session_id: string
+          subjective?: string | null
+          version?: number
+        }
+        Update: {
+          assessment?: string | null
+          created_at?: string
+          edit_type?: string
+          full_summary?: string | null
+          id?: string
+          objective?: string | null
+          plan?: string | null
+          session_id?: string
+          subjective?: string | null
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_summaries_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sessions: {
+        Row: {
+          appointment_id: string | null
+          clinician_name: string
+          clinician_notes: string | null
+          created_at: string
+          id: string
+          patient_id: string
+          session_date: string
+          status: string
+          transcript: string | null
+          updated_at: string
+        }
+        Insert: {
+          appointment_id?: string | null
+          clinician_name: string
+          clinician_notes?: string | null
+          created_at?: string
+          id?: string
+          patient_id: string
+          session_date?: string
+          status?: string
+          transcript?: string | null
+          updated_at?: string
+        }
+        Update: {
+          appointment_id?: string | null
+          clinician_name?: string
+          clinician_notes?: string | null
+          created_at?: string
+          id?: string
+          patient_id?: string
+          session_date?: string
+          status?: string
+          transcript?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sessions_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sessions_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      treatment_plan_exercises: {
+        Row: {
+          created_at: string
+          duration_seconds: number | null
+          exercise_id: string
+          frequency: string
+          id: string
+          notes: string | null
+          order_index: number
+          reps: number | null
+          sets: number | null
+          treatment_plan_id: string
+        }
+        Insert: {
+          created_at?: string
+          duration_seconds?: number | null
+          exercise_id: string
+          frequency?: string
+          id?: string
+          notes?: string | null
+          order_index?: number
+          reps?: number | null
+          sets?: number | null
+          treatment_plan_id: string
+        }
+        Update: {
+          created_at?: string
+          duration_seconds?: number | null
+          exercise_id?: string
+          frequency?: string
+          id?: string
+          notes?: string | null
+          order_index?: number
+          reps?: number | null
+          sets?: number | null
+          treatment_plan_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "treatment_plan_exercises_exercise_id_fkey"
+            columns: ["exercise_id"]
+            isOneToOne: false
+            referencedRelation: "exercises"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_plan_exercises_treatment_plan_id_fkey"
+            columns: ["treatment_plan_id"]
+            isOneToOne: false
+            referencedRelation: "treatment_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      treatment_plans: {
+        Row: {
+          created_at: string
+          id: string
+          notes: string | null
+          patient_id: string
+          sent_at: string | null
+          session_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          patient_id: string
+          sent_at?: string | null
+          session_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          notes?: string | null
+          patient_id?: string
+          sent_at?: string | null
+          session_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "treatment_plans_patient_id_fkey"
+            columns: ["patient_id"]
+            isOneToOne: false
+            referencedRelation: "patients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_plans_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
