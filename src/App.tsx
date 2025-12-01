@@ -8,6 +8,7 @@ import Patients from "./pages/Patients";
 import PatientHistory from "./pages/PatientHistory";
 import Appointments from "./pages/Appointments";
 import Sessions from "./pages/Sessions";
+import SessionWorkflow from "./pages/SessionWorkflow";
 import Exercises from "./pages/Exercises";
 import Billing from "./pages/Billing";
 import Forms from "./pages/Forms";
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/patients/:patientId/history" element={<PatientHistory />} />
           <Route path="/appointments" element={<Appointments />} />
           <Route path="/sessions" element={<Sessions />} />
+          <Route path="/session-workflow/:appointmentId" element={<SessionWorkflow />} />
           <Route path="/exercises" element={<Exercises />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/forms" element={<Forms />} />

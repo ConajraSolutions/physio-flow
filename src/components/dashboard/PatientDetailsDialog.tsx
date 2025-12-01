@@ -63,7 +63,14 @@ export function PatientDetailsDialog({
 
   const handleStartSession = () => {
     onOpenChange(false);
-    navigate(`/sessions/new?appointment=${appointment.id}`);
+    navigate(`/session-workflow/${appointment.id}`, {
+      state: {
+        patientId: appointment.patientId,
+        patientName: appointment.patientName,
+        appointmentId: appointment.id,
+        condition: appointment.condition
+      }
+    });
   };
 
   return (
