@@ -23,12 +23,16 @@ serve(async (req) => {
 
   try {
     const { summary, condition }: SuggestRequest = await req.json();
-    const PHYSIO_KEY = Deno.env.get("physio-key");
+    const apiKey = Deno.env.get("PHYSIO_AI_KEY");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    if (!PHYSIO_KEY) {
-      throw new Error("AI API key is not configured");
+    if (!apiKey) {
+      console.error("PHYSIO_AI_KEY is not configured");
+      return new Response(JSON.stringify({ error: "AI API key is not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // Fetch available exercises from database
@@ -80,16 +84,16 @@ SOAP Summary:
 
 Based on this clinical picture, suggest appropriate exercises from the available library.`;
 
-    console.log("Calling AI gateway for exercise suggestions");
+    console.log("Calling OpenAI API for exercise suggestions");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PHYSIO_KEY}`,
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
