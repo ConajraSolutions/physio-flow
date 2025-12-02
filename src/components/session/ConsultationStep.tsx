@@ -1,9 +1,10 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Mic, MicOff, Clock, ArrowRight, User } from "lucide-react";
+import { Mic, MicOff, Clock, ArrowRight, User, AlertCircle } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 interface ConsultationStepProps {
   patientName: string;
@@ -24,9 +25,20 @@ export function ConsultationStep({
   onNotesChange,
   onNext,
 }: ConsultationStepProps) {
+  const { toast } = useToast();
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [speechSupported, setSpeechSupported] = useState(true);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Check for speech recognition support
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setSpeechSupported(false);
+    }
+  }, []);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -34,34 +46,129 @@ export function ConsultationStep({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleToggleRecording = () => {
-    if (isRecording) {
-      // Stop recording
-      setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      // Simulate transcript generation
-      if (!transcript) {
-        onTranscriptChange(
-          `Patient ${patientName} presents with ${condition || "symptoms"}. ` +
-          "Patient reports experiencing discomfort for the past two weeks. " +
-          "Pain level is approximately 6 out of 10. The pain increases with prolonged sitting and certain movements. " +
-          "Patient has been taking over-the-counter medication with limited relief. " +
-          "Previous treatments include physical therapy and rest. " +
-          "Patient is motivated to follow treatment plan and return to normal activities."
-        );
-      }
-    } else {
-      // Start recording
+  const startRecording = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    
+    if (!SpeechRecognition) {
+      toast({
+        title: "Not Supported",
+        description: "Speech recognition is not supported in your browser. Try Chrome or Edge.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      let finalTranscript = transcript;
+
+      recognition.onresult = (event: any) => {
+        let interimTranscript = "";
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            finalTranscript += result[0].transcript + " ";
+            onTranscriptChange(finalTranscript);
+          } else {
+            interimTranscript += result[0].transcript;
+          }
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error:", event.error);
+        if (event.error !== "aborted") {
+          toast({
+            title: "Recording Error",
+            description: `Speech recognition error: ${event.error}`,
+            variant: "destructive",
+          });
+        }
+        stopRecording();
+      };
+
+      recognition.onend = () => {
+        if (isRecording) {
+          // Restart if still recording (browser may stop automatically)
+          try {
+            recognition.start();
+          } catch (e) {
+            console.log("Recognition ended");
+          }
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
       setIsRecording(true);
       setRecordingTime(0);
+
       timerRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1);
       }, 1000);
+
+      toast({
+        title: "Recording Started",
+        description: "Speak clearly into your microphone",
+      });
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+      toast({
+        title: "Error",
+        description: "Failed to start recording. Please check microphone permissions.",
+        variant: "destructive",
+      });
     }
   };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {
+        console.log("Recognition already stopped");
+      }
+      recognitionRef.current = null;
+    }
+  };
+
+  const handleToggleRecording = () => {
+    if (isRecording) {
+      stopRecording();
+      toast({
+        title: "Recording Stopped",
+        description: "Your transcript has been saved",
+      });
+    } else {
+      startRecording();
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
+      }
+    };
+  }, []);
 
   const canProceed = transcript.length > 0 || clinicianNotes.length > 0;
 
@@ -89,14 +196,25 @@ export function ConsultationStep({
             </div>
           </div>
 
+          {/* Speech Recognition Warning */}
+          {!speechSupported && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 text-warning">
+              <AlertCircle className="h-4 w-4" />
+              <p className="text-sm">Speech recognition not supported. Use Chrome or Edge for voice transcription.</p>
+            </div>
+          )}
+
           {/* Recording Controls */}
           <div className="flex flex-col items-center py-8 space-y-6">
             <button
               onClick={handleToggleRecording}
+              disabled={!speechSupported}
               className={`flex h-24 w-24 items-center justify-center rounded-full transition-all duration-300 ${
                 isRecording
                   ? "bg-destructive text-destructive-foreground animate-pulse"
-                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : speechSupported
+                  ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                  : "bg-muted text-muted-foreground cursor-not-allowed"
               }`}
             >
               {isRecording ? (
@@ -108,7 +226,9 @@ export function ConsultationStep({
             <p className="text-muted-foreground text-center">
               {isRecording
                 ? "Recording in progress... Click to stop"
-                : "Click to start recording consultation"}
+                : speechSupported
+                ? "Click to start recording consultation"
+                : "Voice recording unavailable"}
             </p>
             {isRecording && (
               <div className="flex items-center gap-2 text-foreground">
@@ -124,7 +244,7 @@ export function ConsultationStep({
               Transcript
             </label>
             <Textarea
-              placeholder={isRecording ? "Transcript will appear here as you speak..." : "Start recording to generate transcript"}
+              placeholder={isRecording ? "Transcript will appear here as you speak..." : "Start recording to generate transcript, or type manually"}
               value={transcript}
               onChange={(e) => onTranscriptChange(e.target.value)}
               rows={6}

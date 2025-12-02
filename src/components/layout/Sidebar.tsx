@@ -3,9 +3,6 @@ import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
   Users,
-  Calendar,
-  FileText,
-  ClipboardList,
   Dumbbell,
   CreditCard,
   Settings,
@@ -15,11 +12,8 @@ import {
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Exercises", href: "/exercises", icon: Dumbbell },
   { name: "Patients", href: "/patients", icon: Users },
-  { name: "Appointments", href: "/appointments", icon: Calendar },
-  { name: "Sessions", href: "/sessions", icon: ClipboardList },
-  { name: "Forms", href: "/forms", icon: FileText },
-  { name: "Exercise Plans", href: "/exercises", icon: Dumbbell },
   { name: "Billing", href: "/billing", icon: CreditCard },
 ];
 

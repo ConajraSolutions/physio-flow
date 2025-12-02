@@ -6,12 +6,9 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Patients from "./pages/Patients";
 import PatientHistory from "./pages/PatientHistory";
-import Appointments from "./pages/Appointments";
-import Sessions from "./pages/Sessions";
 import SessionWorkflow from "./pages/SessionWorkflow";
 import Exercises from "./pages/Exercises";
 import Billing from "./pages/Billing";
-import Forms from "./pages/Forms";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -27,12 +24,9 @@ const App = () => (
           <Route path="/" element={<Dashboard />} />
           <Route path="/patients" element={<Patients />} />
           <Route path="/patients/:patientId/history" element={<PatientHistory />} />
-          <Route path="/appointments" element={<Appointments />} />
-          <Route path="/sessions" element={<Sessions />} />
           <Route path="/session-workflow/:appointmentId" element={<SessionWorkflow />} />
           <Route path="/exercises" element={<Exercises />} />
           <Route path="/billing" element={<Billing />} />
-          <Route path="/forms" element={<Forms />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
