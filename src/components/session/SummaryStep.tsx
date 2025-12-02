@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, ArrowRight, Sparkles, History, Check, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface Summary {
   subjective: string;
@@ -39,6 +41,7 @@ export function SummaryStep({
   onNext,
   onBack,
 }: SummaryStepProps) {
+  const { toast } = useToast();
   const [isGenerating, setIsGenerating] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [versions, setVersions] = useState<SummaryVersion[]>([]);
@@ -55,27 +58,42 @@ export function SummaryStep({
   const generateSummary = async () => {
     setIsGenerating(true);
     
-    // Simulate AI generation - will be replaced with actual AI call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-summary", {
+        body: { transcript, clinicianNotes },
+      });
 
-    const generatedSummary: Summary = {
-      subjective: `Patient reports experiencing discomfort for approximately two weeks. Pain level is rated at 6/10, with exacerbation during prolonged sitting and certain movements. Patient has attempted over-the-counter pain medication with limited success. Previous treatments have included physical therapy and rest periods. Patient expresses motivation to adhere to treatment recommendations and return to normal daily activities.`,
-      objective: `Physical examination reveals limited range of motion in affected area. Tenderness noted upon palpation. No visible swelling or discoloration observed. Muscle tension present in surrounding musculature. Posture assessment indicates compensatory patterns. Functional movement screening demonstrates modified movement patterns to avoid pain.`,
-      assessment: `Clinical presentation consistent with musculoskeletal dysfunction affecting daily function. Symptoms suggest combination of soft tissue involvement and potential biomechanical factors. Prognosis favorable with appropriate intervention and patient compliance with home exercise program.`,
-      plan: `Initiate therapeutic exercise program targeting mobility, strength, and stability. Recommend manual therapy techniques to address soft tissue restrictions. Patient education on ergonomics and activity modification. Home exercise program to be provided. Follow-up appointment scheduled in 1-2 weeks to assess progress and modify treatment as needed.`,
-    };
+      if (error) throw error;
 
-    onSummaryChange(generatedSummary);
-    
-    const newVersion: SummaryVersion = {
-      id: versions.length + 1,
-      type: "initial",
-      summary: generatedSummary,
-      timestamp: new Date(),
-    };
-    setVersions([...versions, newVersion]);
-    setActiveVersion(newVersion.id);
-    setIsGenerating(false);
+      if (data?.summary) {
+        const generatedSummary: Summary = {
+          subjective: data.summary.subjective || "",
+          objective: data.summary.objective || "",
+          assessment: data.summary.assessment || "",
+          plan: data.summary.plan || "",
+        };
+
+        onSummaryChange(generatedSummary);
+        
+        const newVersion: SummaryVersion = {
+          id: versions.length + 1,
+          type: "initial",
+          summary: generatedSummary,
+          timestamp: new Date(),
+        };
+        setVersions([...versions, newVersion]);
+        setActiveVersion(newVersion.id);
+      }
+    } catch (error) {
+      console.error("Error generating summary:", error);
+      toast({
+        title: "Error",
+        description: "Failed to generate summary. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleAiRevision = async () => {
@@ -83,28 +101,53 @@ export function SummaryStep({
     
     setIsGenerating(true);
     
-    // Simulate AI revision - will be replaced with actual AI call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-summary", {
+        body: { 
+          transcript, 
+          clinicianNotes,
+          editInstruction: aiPrompt,
+          currentSummary: summary,
+        },
+      });
 
-    // Mock revision based on prompt
-    const revisedSummary = { ...summary };
-    if (aiPrompt.toLowerCase().includes("concise")) {
-      revisedSummary.subjective = revisedSummary.subjective.split(".").slice(0, 2).join(".") + ".";
-      revisedSummary.objective = revisedSummary.objective.split(".").slice(0, 2).join(".") + ".";
+      if (error) throw error;
+
+      if (data?.summary) {
+        const revisedSummary: Summary = {
+          subjective: data.summary.subjective || summary.subjective,
+          objective: data.summary.objective || summary.objective,
+          assessment: data.summary.assessment || summary.assessment,
+          plan: data.summary.plan || summary.plan,
+        };
+
+        onSummaryChange(revisedSummary);
+        
+        const newVersion: SummaryVersion = {
+          id: versions.length + 1,
+          type: "ai",
+          summary: revisedSummary,
+          timestamp: new Date(),
+        };
+        setVersions([...versions, newVersion]);
+        setActiveVersion(newVersion.id);
+        setAiPrompt("");
+
+        toast({
+          title: "Summary Updated",
+          description: "AI has revised the summary based on your instruction.",
+        });
+      }
+    } catch (error) {
+      console.error("Error revising summary:", error);
+      toast({
+        title: "Error",
+        description: "Failed to revise summary. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsGenerating(false);
     }
-
-    onSummaryChange(revisedSummary);
-    
-    const newVersion: SummaryVersion = {
-      id: versions.length + 1,
-      type: "ai",
-      summary: revisedSummary,
-      timestamp: new Date(),
-    };
-    setVersions([...versions, newVersion]);
-    setActiveVersion(newVersion.id);
-    setAiPrompt("");
-    setIsGenerating(false);
   };
 
   const handleManualEdit = (field: keyof Summary, value: string) => {
@@ -161,7 +204,7 @@ export function SummaryStep({
             {isGenerating ? (
               <div className="flex flex-col items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
-                <p className="text-muted-foreground">Generating SOAP note...</p>
+                <p className="text-muted-foreground">Generating SOAP note with AI...</p>
               </div>
             ) : (
               <Tabs defaultValue="subjective" className="w-full">
