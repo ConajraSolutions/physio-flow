@@ -24,11 +24,14 @@ serve(async (req) => {
 
   try {
     const { transcript, clinicianNotes, editInstruction, currentSummary }: SummaryRequest = await req.json();
-    const PHYSIO_KEY = Deno.env.get("physio-key");
+    const apiKey = Deno.env.get("PHYSIO_AI_KEY");
 
-    if (!PHYSIO_KEY) {
-      console.error("physio-key is not configured");
-      throw new Error("AI API key is not configured");
+    if (!apiKey) {
+      console.error("PHYSIO_AI_KEY is not configured");
+      return new Response(JSON.stringify({ error: "AI API key is not configured" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     let systemPrompt = `You are an expert physiotherapy clinical documentation assistant. Your task is to generate professional SOAP notes (Subjective, Objective, Assessment, Plan) from consultation transcripts and clinician notes.
@@ -74,16 +77,16 @@ ${clinicianNotes || "No additional notes"}
 Generate a comprehensive SOAP note based on this information.`;
     }
 
-    console.log("Calling AI gateway for summary generation");
+    console.log("Calling OpenAI API for summary generation");
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${PHYSIO_KEY}`,
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "gpt-4o-mini",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
