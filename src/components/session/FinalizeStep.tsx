@@ -3,6 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Send,
@@ -12,6 +15,9 @@ import {
   Mail,
   Check,
   Loader2,
+  Link,
+  Sparkles,
+  Copy,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -74,21 +80,60 @@ export function FinalizeStep({
   const { toast } = useToast();
   const [isSending, setIsSending] = useState(false);
   const [isSent, setIsSent] = useState(false);
+  const [patientEmail, setPatientEmail] = useState("");
+  const [emailSubject, setEmailSubject] = useState(`Your Treatment Plan from ${new Date().toLocaleDateString()}`);
+  const [emailMessage, setEmailMessage] = useState(
+    `Dear ${patientName || "Patient"},\n\nPlease find your personalized exercise plan attached below. Follow the prescribed exercises as directed.\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\nYour Physiotherapy Team`
+  );
+  const [publicPlanUrl, setPublicPlanUrl] = useState<string | null>(null);
+
+  const generatePublicLink = () => {
+    // Generate a secure tokenized URL (in production, this would create a record in the database)
+    const token = crypto.randomUUID();
+    const url = `${window.location.origin}/plan/${token}`;
+    setPublicPlanUrl(url);
+    toast({
+      title: "Public link generated",
+      description: "The patient can view their plan at this URL without logging in.",
+    });
+  };
+
+  const copyLink = () => {
+    if (publicPlanUrl) {
+      navigator.clipboard.writeText(publicPlanUrl);
+      toast({
+        title: "Link copied",
+        description: "The public plan link has been copied to your clipboard.",
+      });
+    }
+  };
 
   const handleSendToPatient = async () => {
+    if (!patientEmail) {
+      toast({
+        title: "Email required",
+        description: "Please enter the patient's email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSending(true);
 
     try {
-      // For now, we'll simulate saving to database
-      // In production, this would save to Supabase and send email
-      
+      // Generate public link if not already generated
+      if (!publicPlanUrl) {
+        generatePublicLink();
+      }
+
+      // In production, this would call an edge function that uses AWS SES
+      // For now, we simulate the email sending
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
-      // Mock success
       setIsSent(true);
       toast({
         title: "Treatment plan sent!",
-        description: `The exercise plan has been emailed to ${patientName}`,
+        description: `The exercise plan has been emailed to ${patientEmail}`,
       });
     } catch (error) {
       console.error("Error sending treatment plan:", error);
@@ -104,38 +149,44 @@ export function FinalizeStep({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* SOAP Summary */}
-      <Card variant="elevated">
+      {/* AI Summary Section */}
+      <Card variant="elevated" className="lg:col-span-2">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Session Summary</CardTitle>
+            <Sparkles className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">AI Summary</CardTitle>
           </div>
+          <p className="text-sm text-muted-foreground">
+            Final SOAP notes and treatment overview
+          </p>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-1">Subjective</h4>
-            <p className="text-sm text-foreground">{sessionData.summary.subjective}</p>
-          </div>
-          <Separator />
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-1">Objective</h4>
-            <p className="text-sm text-foreground">{sessionData.summary.objective}</p>
-          </div>
-          <Separator />
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-1">Assessment</h4>
-            <p className="text-sm text-foreground">{sessionData.summary.assessment}</p>
-          </div>
-          <Separator />
-          <div>
-            <h4 className="text-sm font-medium text-muted-foreground mb-1">Plan</h4>
-            <p className="text-sm text-foreground">{sessionData.summary.plan}</p>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-primary mb-1">Subjective</h4>
+                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.subjective}</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-primary mb-1">Objective</h4>
+                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.objective}</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium text-primary mb-1">Assessment</h4>
+                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.assessment}</p>
+              </div>
+              <div>
+                <h4 className="text-sm font-medium text-primary mb-1">Plan</h4>
+                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.plan}</p>
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Treatment Plan */}
+      {/* Exercise Plan */}
       <Card variant="elevated">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
@@ -190,7 +241,76 @@ export function FinalizeStep({
         </CardContent>
       </Card>
 
-      {/* Patient & Send */}
+      {/* Email Composition */}
+      <Card variant="elevated">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">Email to Patient</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="patientEmail">Patient Email</Label>
+            <Input
+              id="patientEmail"
+              type="email"
+              placeholder="patient@example.com"
+              value={patientEmail}
+              onChange={(e) => setPatientEmail(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="emailSubject">Subject</Label>
+            <Input
+              id="emailSubject"
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="emailMessage">Message</Label>
+            <Textarea
+              id="emailMessage"
+              value={emailMessage}
+              onChange={(e) => setEmailMessage(e.target.value)}
+              rows={6}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Public Link & Send */}
+      <Card variant="elevated" className="lg:col-span-2">
+        <CardHeader className="pb-4">
+          <div className="flex items-center gap-2">
+            <Link className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">Public Exercise Plan Link</CardTitle>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Generate a secure link that patients can access without logging in
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-4">
+            {publicPlanUrl ? (
+              <div className="flex-1 flex items-center gap-2">
+                <Input value={publicPlanUrl} readOnly className="flex-1" />
+                <Button variant="outline" size="icon" onClick={copyLink}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" onClick={generatePublicLink}>
+                <Link className="h-4 w-4 mr-2" />
+                Generate Public Link
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Send Section */}
       <Card variant="elevated" className="lg:col-span-2">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
@@ -208,7 +328,7 @@ export function FinalizeStep({
                 <p className="font-medium text-foreground">{patientName || "Patient"}</p>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Mail className="h-3 w-3" />
-                  patient@example.com
+                  {patientEmail || "No email entered"}
                 </p>
               </div>
             </div>
@@ -219,7 +339,7 @@ export function FinalizeStep({
                 <span className="font-medium">Sent successfully!</span>
               </div>
             ) : (
-              <Button onClick={handleSendToPatient} disabled={isSending} size="lg">
+              <Button onClick={handleSendToPatient} disabled={isSending || !patientEmail} size="lg">
                 {isSending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
