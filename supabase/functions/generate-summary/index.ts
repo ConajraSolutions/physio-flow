@@ -34,14 +34,47 @@ serve(async (req) => {
       });
     }
 
-    let systemPrompt = `You are an expert physiotherapy clinical documentation assistant. Your task is to generate professional SOAP notes (Subjective, Objective, Assessment, Plan) from consultation transcripts and clinician notes.
+    let systemPrompt = "";
+    let userPrompt = "";
 
-Guidelines:
-- Be concise but thorough
-- Use professional medical terminology appropriate for physiotherapy
-- Focus on functional outcomes and patient-centered goals
-- Include relevant measurements, range of motion assessments, and functional tests
-- Document pain levels, functional limitations, and treatment responses
+    if (editInstruction && currentSummary) {
+      // EXACT Revision Prompt from master prompt - Step 4
+      systemPrompt = `You are a licensed physiotherapist. You are editing an existing set of SOAP notes. The text below represents the current version of the SOAP notes that we are working with.
+
+Rules:
+• Maintain the original SOAP format (Subjective, Objective, Assessment, Plan).
+• Modify only what is necessary to satisfy the revision request.
+• Preserve correct physiotherapy terminology.
+• Keep the notes concise, accurate, and clinically appropriate.
+
+Output format: Return ONLY valid JSON with this exact structure:
+{
+  "subjective": "...",
+  "objective": "...",
+  "assessment": "...",
+  "plan": "..."
+}`;
+
+      userPrompt = `Current SOAP Notes:
+Subjective: ${currentSummary.subjective}
+Objective: ${currentSummary.objective}
+Assessment: ${currentSummary.assessment}
+Plan: ${currentSummary.plan}
+
+Your task is to apply the following revision request to the notes while preserving clinical accuracy and SOAP structure:
+
+Revision Request: ${editInstruction}`;
+    } else {
+      // EXACT Initial SOAP Generation Prompt from master prompt - Step 2
+      systemPrompt = `You are a licensed physiotherapist with expertise in orthopedic and musculoskeletal assessment. Your job is to merge two sources of clinical information: (1) a transcript of a consultation between the patient and clinician, and (2) the clinician's typed notes. Your goal is to consolidate both sources into a single, accurate, clinically appropriate set of SOAP notes.
+
+Follow these rules:
+• Remove filler conversation, greetings, unrelated dialogue, and repetitions.
+• Extract clinically relevant details only.
+• Merge transcript information and clinician notes into one unified narrative.
+• Maintain physiotherapy-specific terminology.
+• Ensure Subjective, Objective, Assessment, and Plan are clearly separated.
+• Ensure treatment goals and contributing factors are captured if mentioned.
 
 Output format: Return ONLY valid JSON with this exact structure:
 {
@@ -51,24 +84,7 @@ Output format: Return ONLY valid JSON with this exact structure:
   "plan": "Treatment plan, goals, and follow-up"
 }`;
 
-    let userPrompt = "";
-
-    if (editInstruction && currentSummary) {
-      // Edit existing summary based on instruction
-      userPrompt = `Current SOAP Summary:
-Subjective: ${currentSummary.subjective}
-Objective: ${currentSummary.objective}
-Assessment: ${currentSummary.assessment}
-Plan: ${currentSummary.plan}
-
-Edit Instruction: ${editInstruction}
-
-Please revise the SOAP summary according to the edit instruction while maintaining clinical accuracy.`;
-    } else {
-      // Generate new summary
-      userPrompt = `Generate a SOAP note from the following consultation:
-
-TRANSCRIPT:
+      userPrompt = `TRANSCRIPT:
 ${transcript || "No transcript available"}
 
 CLINICIAN NOTES:
@@ -96,7 +112,7 @@ Generate a comprehensive SOAP note based on this information.`;
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      console.error("OpenAI API error:", response.status, errorText);
       
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
@@ -110,7 +126,7 @@ Generate a comprehensive SOAP note based on this information.`;
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      throw new Error(`AI gateway error: ${response.status}`);
+      throw new Error(`OpenAI API error: ${response.status}`);
     }
 
     const data = await response.json();

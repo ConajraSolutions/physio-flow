@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Mic, MicOff, Clock, ArrowRight, User, AlertCircle } from "lucide-react";
+import { Mic, MicOff, Clock, ArrowRight, User, AlertCircle, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ConsultationStepProps {
@@ -114,7 +114,7 @@ export function ConsultationStep({
 
       toast({
         title: "Recording Started",
-        description: "Speak clearly into your microphone",
+        description: "Speak clearly into your microphone. Transcript is read-only during recording.",
       });
     } catch (error) {
       console.error("Failed to start recording:", error);
@@ -149,7 +149,7 @@ export function ConsultationStep({
       stopRecording();
       toast({
         title: "Recording Stopped",
-        description: "Your transcript has been saved",
+        description: "Your transcript has been saved. You can now edit it manually.",
       });
     } else {
       startRecording();
@@ -240,16 +240,31 @@ export function ConsultationStep({
 
           {/* Live Transcript Preview */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">
-              Transcript
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-foreground">
+                Transcript
+              </label>
+              {isRecording && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lock className="h-3 w-3" />
+                  <span>Read-only during recording</span>
+                </div>
+              )}
+            </div>
             <Textarea
               placeholder={isRecording ? "Transcript will appear here as you speak..." : "Start recording to generate transcript, or type manually"}
               value={transcript}
               onChange={(e) => onTranscriptChange(e.target.value)}
               rows={6}
               className="resize-none"
+              readOnly={isRecording}
+              disabled={isRecording}
             />
+            {!isRecording && transcript && (
+              <p className="text-xs text-muted-foreground">
+                You can now edit the transcript manually to correct any errors.
+              </p>
+            )}
           </div>
         </CardContent>
       </Card>
