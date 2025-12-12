@@ -10,6 +10,7 @@ import SessionWorkflow from "./pages/SessionWorkflow";
 import Exercises from "./pages/Exercises";
 import Billing from "./pages/Billing";
 import Settings from "./pages/Settings";
+import PublicPlan from "./pages/PublicPlan";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/exercises" element={<Exercises />} />
           <Route path="/billing" element={<Billing />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/plan/:token" element={<PublicPlan />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

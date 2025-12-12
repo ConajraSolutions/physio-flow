@@ -130,13 +130,45 @@ export function FinalizeStep({
     }
   };
 
-  const generatePublicLink = (): string => {
+  const generatePublicLink = async (): Promise<string> => {
     if (publicPlanUrl) return publicPlanUrl;
     
     const token = crypto.randomUUID();
     const url = `${window.location.origin}/plan/${token}`;
-    setPublicPlanUrl(url);
-    return url;
+    
+    // Save plan data to database
+    try {
+      const planData = {
+        patientName,
+        summary: sessionData.summary,
+        selectedExercises: sessionData.selectedExercises,
+      };
+
+      const { error } = await supabase
+        .from("public_plans")
+        .insert({
+          token,
+          patient_id: patientId,
+          patient_name: patientName || "Patient",
+          plan_data: planData,
+        });
+
+      if (error) {
+        console.error("Error saving public plan:", error);
+        toast({
+          title: "Error",
+          description: "Failed to generate public link. Please try again.",
+          variant: "destructive",
+        });
+        throw error;
+      }
+
+      setPublicPlanUrl(url);
+      return url;
+    } catch (error) {
+      console.error("Error generating public link:", error);
+      throw error;
+    }
   };
 
   const copyLink = () => {
@@ -149,7 +181,7 @@ export function FinalizeStep({
     }
   };
 
-  const buildEmailHtml = (planUrl: string): string => {
+  const buildEmailHtml = (planUrl: string | null): string => {
     const messageWithBreaks = emailMessage.replace(/\n/g, "<br>");
     
     const exercisesList = sessionData.selectedExercises
@@ -193,12 +225,14 @@ export function FinalizeStep({
           ${exercisesList}
         </ul>
         
+        ${planUrl ? `
         <p>You can view your full plan here:</p>
         <p>
           <a href="${planUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
             View Your Exercise Plan
           </a>
         </p>
+        ` : ''}
         
         <p style="margin-top: 32px; color: #666;">
           Best regards,<br />
@@ -221,11 +255,30 @@ export function FinalizeStep({
     setIsSending(true);
 
     try {
-      // Generate public link if not already generated
-      const planUrl = generatePublicLink();
+      // Try to generate public link if not already generated (this will save to database)
+      // If it fails, we'll still send the email without the link
+      let planUrl: string | null = null;
+      try {
+        planUrl = await generatePublicLink();
+      } catch (linkError: any) {
+        console.error("Failed to generate public link, continuing without it:", linkError);
+        console.error("Link generation error details:", {
+          message: linkError?.message,
+          code: linkError?.code,
+          details: linkError?.details,
+          hint: linkError?.hint,
+        });
+        // Show a warning but don't block email sending
+        toast({
+          title: "Link generation failed",
+          description: "Email will be sent without public link. Check console for details.",
+          variant: "destructive",
+        });
+        // Continue without the public link - email will still be sent
+      }
       
-      // Build the HTML email body
-      const htmlBody = buildEmailHtml(planUrl);
+      // Build the HTML email body (with or without the link)
+      const htmlBody = buildEmailHtml(planUrl || "");
 
       // Send to all recipients
       const sendPromises = recipientEmails.map(email =>
@@ -453,7 +506,20 @@ export function FinalizeStep({
                 </Button>
               </div>
             ) : (
-              <Button variant="outline" onClick={() => generatePublicLink()}>
+              <Button 
+                variant="outline" 
+                onClick={async () => {
+                  try {
+                    await generatePublicLink();
+                    toast({
+                      title: "Link generated",
+                      description: "Public plan link has been generated successfully.",
+                    });
+                  } catch (error) {
+                    // Error already handled in generatePublicLink
+                  }
+                }}
+              >
                 <Link className="h-4 w-4 mr-2" />
                 Generate Public Link
               </Button>
