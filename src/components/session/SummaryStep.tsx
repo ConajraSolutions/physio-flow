@@ -22,6 +22,7 @@ interface SummaryVersion {
   type: "initial" | "manual" | "ai";
   summary: Summary;
   timestamp: Date;
+  prompt?: string; // For AI revisions, store the prompt used
 }
 
 interface SummaryStepProps {
@@ -46,7 +47,6 @@ export function SummaryStep({
   const [aiPrompt, setAiPrompt] = useState("");
   const [versions, setVersions] = useState<SummaryVersion[]>([]);
   const [activeVersion, setActiveVersion] = useState<number>(0);
-  const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedSummaryRef = useRef<string>("");
 
   // Generate initial summary on mount if empty
@@ -55,35 +55,6 @@ export function SummaryStep({
       generateSummary();
     }
   }, []);
-
-  // Auto-save version every 10 seconds of editing
-  useEffect(() => {
-    const currentSummaryStr = JSON.stringify(summary);
-    
-    if (lastSavedSummaryRef.current !== currentSummaryStr && versions.length > 0) {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-      
-      autoSaveTimerRef.current = setTimeout(() => {
-        const newVersion: SummaryVersion = {
-          id: versions.length + 1,
-          type: "manual",
-          summary: { ...summary },
-          timestamp: new Date(),
-        };
-        setVersions(prev => [...prev, newVersion]);
-        setActiveVersion(newVersion.id);
-        lastSavedSummaryRef.current = currentSummaryStr;
-      }, 10000); // 10 seconds
-    }
-
-    return () => {
-      if (autoSaveTimerRef.current) {
-        clearTimeout(autoSaveTimerRef.current);
-      }
-    };
-  }, [summary, versions.length]);
 
   const generateSummary = async () => {
     setIsGenerating(true);
@@ -130,6 +101,7 @@ export function SummaryStep({
   const handleAiRevision = async () => {
     if (!aiPrompt.trim()) return;
     
+    const revisionPromptUsed = aiPrompt.trim();
     setIsGenerating(true);
     
     try {
@@ -137,7 +109,7 @@ export function SummaryStep({
         body: { 
           transcript, 
           clinicianNotes,
-          editInstruction: aiPrompt,
+          editInstruction: revisionPromptUsed,
           currentSummary: summary,
         },
       });
@@ -160,8 +132,9 @@ export function SummaryStep({
           type: "ai",
           summary: revisedSummary,
           timestamp: new Date(),
+          prompt: revisionPromptUsed,
         };
-        setVersions([...versions, newVersion]);
+        setVersions(prev => [...prev, newVersion]);
         setActiveVersion(newVersion.id);
         setAiPrompt("");
 
@@ -185,6 +158,24 @@ export function SummaryStep({
   const handleManualEdit = (field: keyof Summary, value: string) => {
     const updatedSummary = { ...summary, [field]: value };
     onSummaryChange(updatedSummary);
+  };
+
+  // Save-on-blur: create a new manual version when the user leaves the textarea
+  const handleBlur = () => {
+    const currentSummaryStr = JSON.stringify(summary);
+    
+    // Only save if content has changed since last saved version
+    if (lastSavedSummaryRef.current !== currentSummaryStr && versions.length > 0) {
+      const newVersion: SummaryVersion = {
+        id: versions.length + 1,
+        type: "manual",
+        summary: { ...summary },
+        timestamp: new Date(),
+      };
+      setVersions(prev => [...prev, newVersion]);
+      setActiveVersion(newVersion.id);
+      lastSavedSummaryRef.current = currentSummaryStr;
+    }
   };
 
   const restoreVersion = (version: SummaryVersion) => {
@@ -222,6 +213,7 @@ export function SummaryStep({
                   <Textarea
                     value={summary.subjective}
                     onChange={(e) => handleManualEdit("subjective", e.target.value)}
+                    onBlur={handleBlur}
                     rows={8}
                     placeholder="Patient's description of symptoms, history, and concerns..."
                   />
@@ -231,6 +223,7 @@ export function SummaryStep({
                   <Textarea
                     value={summary.objective}
                     onChange={(e) => handleManualEdit("objective", e.target.value)}
+                    onBlur={handleBlur}
                     rows={8}
                     placeholder="Clinical findings, measurements, and observations..."
                   />
@@ -240,6 +233,7 @@ export function SummaryStep({
                   <Textarea
                     value={summary.assessment}
                     onChange={(e) => handleManualEdit("assessment", e.target.value)}
+                    onBlur={handleBlur}
                     rows={8}
                     placeholder="Clinical assessment and diagnosis..."
                   />
@@ -249,6 +243,7 @@ export function SummaryStep({
                   <Textarea
                     value={summary.plan}
                     onChange={(e) => handleManualEdit("plan", e.target.value)}
+                    onBlur={handleBlur}
                     rows={8}
                     placeholder="Treatment plan and recommendations..."
                   />
@@ -298,7 +293,7 @@ export function SummaryStep({
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">Version History</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Auto-saves every 10 seconds of editing
+            Saves when you click away from the editor
           </p>
         </CardHeader>
         <CardContent>
@@ -332,7 +327,7 @@ export function SummaryStep({
                         {version.type === "initial"
                           ? "Initial"
                           : version.type === "ai"
-                          ? "AI Edit"
+                          ? "AI"
                           : "Manual"}
                       </Badge>
                       {activeVersion === version.id && (
@@ -342,6 +337,11 @@ export function SummaryStep({
                     <p className="text-xs text-muted-foreground">
                       v{version.id} • {version.timestamp.toLocaleTimeString()}
                     </p>
+                    {version.type === "ai" && version.prompt && (
+                      <p className="text-xs text-muted-foreground mt-1 italic truncate">
+                        "{version.prompt}"
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

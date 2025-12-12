@@ -2,14 +2,12 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Send,
-  FileText,
   Dumbbell,
   User,
   Mail,
@@ -83,19 +81,17 @@ export function FinalizeStep({
   const [patientEmail, setPatientEmail] = useState("");
   const [emailSubject, setEmailSubject] = useState(`Your Treatment Plan from ${new Date().toLocaleDateString()}`);
   const [emailMessage, setEmailMessage] = useState(
-    `Dear ${patientName || "Patient"},\n\nPlease find your personalized exercise plan attached below. Follow the prescribed exercises as directed.\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\nYour Physiotherapy Team`
+    `Dear ${patientName || "Patient"},\n\nPlease find your personalized exercise plan below. Follow the prescribed exercises as directed.\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\nYour Physiotherapy Team`
   );
   const [publicPlanUrl, setPublicPlanUrl] = useState<string | null>(null);
 
-  const generatePublicLink = () => {
-    // Generate a secure tokenized URL (in production, this would create a record in the database)
+  const generatePublicLink = (): string => {
+    if (publicPlanUrl) return publicPlanUrl;
+    
     const token = crypto.randomUUID();
     const url = `${window.location.origin}/plan/${token}`;
     setPublicPlanUrl(url);
-    toast({
-      title: "Public link generated",
-      description: "The patient can view their plan at this URL without logging in.",
-    });
+    return url;
   };
 
   const copyLink = () => {
@@ -108,8 +104,67 @@ export function FinalizeStep({
     }
   };
 
+  const buildEmailHtml = (planUrl: string): string => {
+    const messageWithBreaks = emailMessage.replace(/\n/g, "<br>");
+    
+    const exercisesList = sessionData.selectedExercises
+      .map((exercise) => {
+        const details = [];
+        if (exercise.sets) details.push(`${exercise.sets} sets`);
+        if (exercise.reps) details.push(`${exercise.reps} reps`);
+        if (exercise.duration_seconds) details.push(`${exercise.duration_seconds}s hold`);
+        const freq = frequencyLabels[exercise.frequency] || exercise.frequency;
+        
+        return `<li><strong>${exercise.name}</strong> – ${details.join(" × ")} (${freq})</li>`;
+      })
+      .join("");
+
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <p>Dear ${patientName || "Patient"},</p>
+        
+        <p>${messageWithBreaks}</p>
+        
+        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
+        
+        <h3 style="color: #333; margin-bottom: 16px;">Your Treatment Summary</h3>
+        
+        <h4 style="color: #666; margin-bottom: 8px;">Subjective</h4>
+        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.subjective}</p>
+        
+        <h4 style="color: #666; margin-bottom: 8px;">Objective</h4>
+        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.objective}</p>
+        
+        <h4 style="color: #666; margin-bottom: 8px;">Assessment</h4>
+        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.assessment}</p>
+        
+        <h4 style="color: #666; margin-bottom: 8px;">Plan</h4>
+        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.plan}</p>
+        
+        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
+        
+        <h3 style="color: #333; margin-bottom: 16px;">Prescribed Exercises</h3>
+        <ul style="padding-left: 20px; margin-bottom: 24px;">
+          ${exercisesList}
+        </ul>
+        
+        <p>You can view your full plan here:</p>
+        <p>
+          <a href="${planUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
+            View Your Exercise Plan
+          </a>
+        </p>
+        
+        <p style="margin-top: 32px; color: #666;">
+          Best regards,<br />
+          Your Physiotherapy Team
+        </p>
+      </div>
+    `;
+  };
+
   const handleSendToPatient = async () => {
-    if (!patientEmail) {
+    if (!patientEmail.trim()) {
       toast({
         title: "Email required",
         description: "Please enter the patient's email address.",
@@ -122,20 +177,36 @@ export function FinalizeStep({
 
     try {
       // Generate public link if not already generated
-      if (!publicPlanUrl) {
-        generatePublicLink();
+      const planUrl = generatePublicLink();
+      
+      // Build the HTML email body
+      const htmlBody = buildEmailHtml(planUrl);
+
+      // Call the send-plan-email edge function
+      const { data, error } = await supabase.functions.invoke("send-plan-email", {
+        body: {
+          to: patientEmail,
+          subject: emailSubject,
+          html: htmlBody,
+        },
+      });
+
+      if (error) {
+        console.error("Edge function error:", error);
+        throw new Error(error.message || "Failed to send email");
       }
 
-      // In production, this would call an edge function that uses AWS SES
-      // For now, we simulate the email sending
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      if (data?.success === false) {
+        console.error("Email sending failed:", data.error);
+        throw new Error(data.error || "Failed to send email");
+      }
 
       setIsSent(true);
       toast({
         title: "Treatment plan sent!",
         description: `The exercise plan has been emailed to ${patientEmail}`,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error sending treatment plan:", error);
       toast({
         title: "Error",
@@ -301,7 +372,7 @@ export function FinalizeStep({
                 </Button>
               </div>
             ) : (
-              <Button variant="outline" onClick={generatePublicLink}>
+              <Button variant="outline" onClick={() => generatePublicLink()}>
                 <Link className="h-4 w-4 mr-2" />
                 Generate Public Link
               </Button>
