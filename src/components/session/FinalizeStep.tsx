@@ -16,6 +16,8 @@ import {
   Link,
   Sparkles,
   Copy,
+  Plus,
+  X,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -67,6 +69,11 @@ const frequencyLabels: Record<string, string> = {
   weekly: "Weekly",
 };
 
+const isValidEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
 export function FinalizeStep({
   patientName,
   patientId,
@@ -78,12 +85,50 @@ export function FinalizeStep({
   const { toast } = useToast();
   const [isSending, setIsSending] = useState(false);
   const [isSent, setIsSent] = useState(false);
-  const [patientEmail, setPatientEmail] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+  const [recipientEmails, setRecipientEmails] = useState<string[]>([]);
   const [emailSubject, setEmailSubject] = useState(`Your Treatment Plan from ${new Date().toLocaleDateString()}`);
   const [emailMessage, setEmailMessage] = useState(
     `Dear ${patientName || "Patient"},\n\nPlease find your personalized exercise plan below. Follow the prescribed exercises as directed.\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\nYour Physiotherapy Team`
   );
   const [publicPlanUrl, setPublicPlanUrl] = useState<string | null>(null);
+
+  const addEmail = () => {
+    const email = emailInput.trim();
+    if (!email) return;
+    
+    if (!isValidEmail(email)) {
+      toast({
+        title: "Invalid email",
+        description: "Please enter a valid email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (recipientEmails.includes(email)) {
+      toast({
+        title: "Duplicate email",
+        description: "This email is already in the list.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setRecipientEmails([...recipientEmails, email]);
+    setEmailInput("");
+  };
+
+  const removeEmail = (emailToRemove: string) => {
+    setRecipientEmails(recipientEmails.filter(email => email !== emailToRemove));
+  };
+
+  const handleEmailKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addEmail();
+    }
+  };
 
   const generatePublicLink = (): string => {
     if (publicPlanUrl) return publicPlanUrl;
@@ -164,10 +209,10 @@ export function FinalizeStep({
   };
 
   const handleSendToPatient = async () => {
-    if (!patientEmail.trim()) {
+    if (recipientEmails.length === 0) {
       toast({
-        title: "Email required",
-        description: "Please enter the patient's email address.",
+        title: "No recipients",
+        description: "Please add at least one email address before sending.",
         variant: "destructive",
       });
       return;
@@ -182,30 +227,39 @@ export function FinalizeStep({
       // Build the HTML email body
       const htmlBody = buildEmailHtml(planUrl);
 
-      // Call the send-plan-email edge function
-      const { data, error } = await supabase.functions.invoke("send-plan-email", {
-        body: {
-          to: patientEmail,
-          subject: emailSubject,
-          html: htmlBody,
-        },
-      });
+      // Send to all recipients
+      const sendPromises = recipientEmails.map(email =>
+        supabase.functions.invoke("send-plan-email", {
+          body: {
+            to: email,
+            subject: emailSubject,
+            html: htmlBody,
+          },
+        })
+      );
 
-      if (error) {
-        console.error("Edge function error:", error);
-        throw new Error(error.message || "Failed to send email");
+      const results = await Promise.all(sendPromises);
+      
+      // Check for any errors
+      const errors = results.filter(r => r.error || r.data?.success === false);
+      
+      if (errors.length > 0) {
+        console.error("Some emails failed to send:", errors);
+        if (errors.length === results.length) {
+          throw new Error("All emails failed to send");
+        }
+        toast({
+          title: "Partial success",
+          description: `${results.length - errors.length} of ${results.length} emails sent successfully.`,
+        });
+      } else {
+        toast({
+          title: "Treatment plan sent!",
+          description: `The exercise plan has been emailed to ${recipientEmails.length} recipient${recipientEmails.length > 1 ? 's' : ''}.`,
+        });
       }
-
-      if (data?.success === false) {
-        console.error("Email sending failed:", data.error);
-        throw new Error(data.error || "Failed to send email");
-      }
-
+      
       setIsSent(true);
-      toast({
-        title: "Treatment plan sent!",
-        description: `The exercise plan has been emailed to ${patientEmail}`,
-      });
     } catch (error: any) {
       console.error("Error sending treatment plan:", error);
       toast({
@@ -322,14 +376,41 @@ export function FinalizeStep({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="patientEmail">Patient Email</Label>
-            <Input
-              id="patientEmail"
-              type="email"
-              placeholder="patient@example.com"
-              value={patientEmail}
-              onChange={(e) => setPatientEmail(e.target.value)}
-            />
+            <Label htmlFor="recipientEmail">Recipients</Label>
+            <div className="flex gap-2">
+              <Input
+                id="recipientEmail"
+                type="email"
+                placeholder="Enter email address"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                onKeyDown={handleEmailKeyDown}
+              />
+              <Button type="button" variant="outline" size="icon" onClick={addEmail}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            {recipientEmails.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {recipientEmails.map((email) => (
+                  <Badge 
+                    key={email} 
+                    variant="secondary" 
+                    className="flex items-center gap-1 py-1 px-2"
+                  >
+                    <Mail className="h-3 w-3" />
+                    {email}
+                    <button
+                      type="button"
+                      onClick={() => removeEmail(email)}
+                      className="ml-1 hover:text-destructive"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="emailSubject">Subject</Label>
@@ -399,18 +480,25 @@ export function FinalizeStep({
                 <p className="font-medium text-foreground">{patientName || "Patient"}</p>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Mail className="h-3 w-3" />
-                  {patientEmail || "No email entered"}
+                  {recipientEmails.length > 0 
+                    ? `${recipientEmails.length} recipient${recipientEmails.length > 1 ? 's' : ''}` 
+                    : "No recipients added"}
                 </p>
               </div>
             </div>
 
-            {isSent ? (
-              <div className="flex items-center gap-2 text-primary">
-                <Check className="h-5 w-5" />
-                <span className="font-medium">Sent successfully!</span>
-              </div>
-            ) : (
-              <Button onClick={handleSendToPatient} disabled={isSending || !patientEmail} size="lg">
+            <div className="flex items-center gap-4">
+              {isSent && (
+                <div className="flex items-center gap-2 text-primary">
+                  <Check className="h-5 w-5" />
+                  <span className="font-medium">Sent successfully!</span>
+                </div>
+              )}
+              <Button 
+                onClick={handleSendToPatient} 
+                disabled={isSending || recipientEmails.length === 0} 
+                size="lg"
+              >
                 {isSending ? (
                   <>
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -419,11 +507,11 @@ export function FinalizeStep({
                 ) : (
                   <>
                     <Send className="h-4 w-4 mr-2" />
-                    Send Exercise Plan
+                    {isSent ? "Send Again" : "Send Exercise Plan"}
                   </>
                 )}
               </Button>
-            )}
+            </div>
           </div>
         </CardContent>
       </Card>

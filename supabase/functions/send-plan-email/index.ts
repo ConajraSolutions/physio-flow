@@ -40,7 +40,7 @@ const handler = async (req: Request): Promise<Response> => {
         "Authorization": `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        from: "Physio Clinic <onboarding@resend.dev>",
+        from: "Physio Clinic <noreply@marwanali.me>",
         to: [to],
         subject,
         html,

@@ -28,6 +28,9 @@ const timeSlots = [
   "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00"
 ];
 
+const SLOT_HEIGHT = 40; // Reduced from 60 to fit more on screen
+const HEADER_HEIGHT = 180; // Approximate header + navigation height
+
 export function WeeklyCalendar() {
   const navigate = useNavigate();
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
@@ -132,8 +135,12 @@ export function WeeklyCalendar() {
     const hours = currentTime.getHours();
     const minutes = currentTime.getMinutes();
     const totalMinutes = (hours - 8) * 60 + minutes;
-    const slotHeight = 60;
-    return (totalMinutes / 30) * slotHeight;
+    return (totalMinutes / 30) * SLOT_HEIGHT;
+  };
+
+  const isCurrentTimeVisible = () => {
+    const hours = currentTime.getHours();
+    return hours >= 8 && hours < 18;
   };
 
   const isAppointmentNow = (apt: Appointment) => {
@@ -231,12 +238,12 @@ export function WeeklyCalendar() {
 
   return (
     <>
-      <Card variant="elevated" className="animate-slide-up">
-        <CardHeader className="pb-4">
+      <Card variant="elevated" className="animate-slide-up flex flex-col" style={{ height: `calc(100vh - ${HEADER_HEIGHT}px)` }}>
+        <CardHeader className="pb-2 flex-shrink-0">
           <div className="flex items-center justify-between">
             <CardTitle className="text-xl">Weekly Schedule</CardTitle>
             <div className="flex items-center gap-2">
-              <Button onClick={() => setNewAppointmentOpen(true)}>
+              <Button onClick={() => setNewAppointmentOpen(true)} size="sm">
                 <Plus className="h-4 w-4 mr-2" />
                 New Appointment
               </Button>
@@ -246,7 +253,7 @@ export function WeeklyCalendar() {
               <Button variant="ghost" size="icon-sm" onClick={handlePreviousWeek}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <span className="text-sm font-medium min-w-[200px] text-center">
+              <span className="text-sm font-medium min-w-[180px] text-center">
                 {format(weekStart, "MMM d")} - {format(addDays(weekStart, 4), "MMM d, yyyy")}
               </span>
               <Button variant="ghost" size="icon-sm" onClick={handleNextWeek}>
@@ -255,16 +262,16 @@ export function WeeklyCalendar() {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-1 overflow-hidden flex flex-col pb-2">
           {/* Day Headers */}
-          <div className="grid grid-cols-[80px_repeat(5,1fr)] gap-1 mb-2">
+          <div className="grid grid-cols-[60px_repeat(5,1fr)] gap-1 mb-1 flex-shrink-0">
             <div />
             {weekDays.map((day, index) => {
               const isToday = isSameDay(day, new Date());
               return (
                 <div
                   key={index}
-                  className={`text-center p-2 rounded-lg ${
+                  className={`text-center p-1.5 rounded-lg ${
                     isToday ? "bg-primary/10" : "bg-secondary/50"
                   }`}
                 >
@@ -272,7 +279,7 @@ export function WeeklyCalendar() {
                     {format(day, "EEE")}
                   </p>
                   <p
-                    className={`text-xl font-semibold ${
+                    className={`text-lg font-semibold ${
                       isToday ? "text-primary" : "text-foreground"
                     }`}
                   >
@@ -283,25 +290,25 @@ export function WeeklyCalendar() {
             })}
           </div>
 
-          {/* Time Grid */}
-          <div className="relative">
+          {/* Time Grid - Scrollable */}
+          <div className="relative flex-1 overflow-y-auto">
             {/* Current Time Line */}
-            {weekDays.some(d => isSameDay(d, currentTime)) && 
-             currentTime.getHours() >= 8 && currentTime.getHours() < 17 && (
+            {weekDays.some(d => isSameDay(d, currentTime)) && isCurrentTimeVisible() && (
               <div 
-                className="absolute left-[80px] right-0 h-0.5 bg-destructive z-20 pointer-events-none"
+                className="absolute left-[60px] right-0 h-0.5 bg-destructive z-20 pointer-events-none"
                 style={{ top: `${getCurrentTimePosition()}px` }}
               >
                 <div className="absolute -left-2 -top-1.5 w-3 h-3 bg-destructive rounded-full" />
               </div>
             )}
 
-            <div className="grid grid-cols-[80px_repeat(5,1fr)] gap-1">
+            <div className="grid grid-cols-[60px_repeat(5,1fr)] gap-1">
               {timeSlots.map((time) => (
                 <>
                   <div
                     key={`time-${time}`}
-                    className="text-xs text-muted-foreground text-right pr-2 h-[60px] flex items-start pt-1"
+                    className="text-xs text-muted-foreground text-right pr-2 flex items-start pt-0.5"
+                    style={{ height: `${SLOT_HEIGHT}px` }}
                   >
                     {time}
                   </div>
@@ -312,7 +319,8 @@ export function WeeklyCalendar() {
                     return (
                       <div
                         key={`${dayIndex}-${time}`}
-                        className="min-h-[60px] border-t border-border/30 relative"
+                        className="border-t border-border/30 relative"
+                        style={{ minHeight: `${SLOT_HEIGHT}px` }}
                         onDragOver={handleDragOver}
                         onDrop={() => handleDrop(day, time)}
                       >
@@ -329,37 +337,37 @@ export function WeeklyCalendar() {
                                 setSelectedAppointment(apt);
                                 setDialogOpen(true);
                               }}
-                              className={`absolute left-0 right-0 mx-1 p-2 rounded-md cursor-move transition-all hover:shadow-md z-10 ${
+                              className={`absolute left-0 right-0 mx-0.5 p-1.5 rounded-md cursor-move transition-all hover:shadow-md z-10 ${
                                 isNow
                                   ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-2"
                                   : apt.status === "completed"
                                   ? "bg-muted text-muted-foreground"
                                   : "bg-primary/20 text-foreground hover:bg-primary/30"
                               }`}
-                              style={{ height: `${heightSlots * 60 - 8}px` }}
+                              style={{ height: `${heightSlots * SLOT_HEIGHT - 4}px` }}
                             >
                               <div className="flex flex-col h-full">
-                                <div className="flex items-center gap-1">
-                                  <GripVertical className="h-3 w-3 opacity-50" />
-                                  <p className="font-medium text-sm truncate flex-1">
+                                <div className="flex items-center gap-0.5">
+                                  <GripVertical className="h-3 w-3 opacity-50 flex-shrink-0" />
+                                  <p className="font-medium text-xs truncate flex-1">
                                     {apt.patientName}
                                   </p>
                                 </div>
-                                <p className={`text-xs ${isNow ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                <p className={`text-[10px] truncate ${isNow ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
                                   {apt.type}
                                 </p>
-                                {isNow && (
+                                {isNow && apt.duration >= 60 && (
                                   <Button
                                     size="sm"
                                     variant="secondary"
-                                    className="mt-auto w-full"
+                                    className="mt-auto w-full h-6 text-xs"
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleStartSession(apt);
                                     }}
                                   >
                                     <Play className="h-3 w-3 mr-1" />
-                                    Start Session
+                                    Start
                                   </Button>
                                 )}
                                 {/* Resize handle */}
