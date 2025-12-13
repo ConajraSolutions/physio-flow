@@ -15,9 +15,61 @@ import {
   CreditCard,
   Link,
   Save,
+  Globe,
 } from "lucide-react";
+import { useTimeZoneSettings } from "@/hooks/useTimeZoneSettings";
+import { useBusinessHours } from "@/hooks/useBusinessHours";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState, useEffect } from "react";
+
+// Common timezones list
+const COMMON_TIMEZONES = [
+  { value: "America/Toronto", label: "America/Toronto (EST/EDT)" },
+  { value: "America/New_York", label: "America/New_York (EST/EDT)" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles (PST/PDT)" },
+  { value: "America/Chicago", label: "America/Chicago (CST/CDT)" },
+  { value: "America/Denver", label: "America/Denver (MST/MDT)" },
+  { value: "Europe/London", label: "Europe/London (GMT/BST)" },
+  { value: "Europe/Paris", label: "Europe/Paris (CET/CEST)" },
+  { value: "Europe/Berlin", label: "Europe/Berlin (CET/CEST)" },
+  { value: "Asia/Dubai", label: "Asia/Dubai (GST)" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata (IST)" },
+  { value: "Asia/Tokyo", label: "Asia/Tokyo (JST)" },
+  { value: "Asia/Shanghai", label: "Asia/Shanghai (CST)" },
+  { value: "Australia/Sydney", label: "Australia/Sydney (AEST/AEDT)" },
+  { value: "Australia/Melbourne", label: "Australia/Melbourne (AEST/AEDT)" },
+  { value: "UTC", label: "UTC" },
+];
 
 export default function Settings() {
+  const {
+    settings,
+    detectedTimeZone,
+    effectiveTimeZone,
+    setTimeZoneMode,
+    setManualTimeZone,
+  } = useTimeZoneSettings();
+  
+  const { businessHours, updateDay } = useBusinessHours();
+  
+  // Local state for business hours inputs
+  const [localBusinessHours, setLocalBusinessHours] = useState(businessHours);
+  
+  // Update local state when business hours change externally
+  useEffect(() => {
+    setLocalBusinessHours(businessHours);
+  }, [businessHours]);
+  
+  const handleBusinessHoursChange = (day: keyof typeof businessHours, field: "enabled" | "startTime" | "endTime", value: boolean | string) => {
+    const updated = {
+      ...localBusinessHours[day],
+      [field]: value,
+    };
+    const newHours = { ...localBusinessHours, [day]: updated };
+    setLocalBusinessHours(newHours);
+    updateDay(day, updated);
+  };
+
   return (
     <MainLayout>
       <PageHeader
@@ -99,50 +151,75 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map(
-                (day) => (
-                  <div key={day} className="flex items-center justify-between">
-                    <span className="w-24 font-medium">{day}</span>
+              {([
+                { key: "monday", label: "Monday" },
+                { key: "tuesday", label: "Tuesday" },
+                { key: "wednesday", label: "Wednesday" },
+                { key: "thursday", label: "Thursday" },
+                { key: "friday", label: "Friday" },
+              ] as const).map(({ key, label }) => {
+                const dayHours = localBusinessHours[key];
+                return (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="w-24 font-medium">{label}</span>
                     <div className="flex items-center gap-2">
                       <Input
                         type="time"
-                        defaultValue="08:00"
+                        value={dayHours.startTime}
+                        onChange={(e) => handleBusinessHoursChange(key, "startTime", e.target.value)}
                         className="w-28"
+                        disabled={!dayHours.enabled}
                       />
                       <span className="text-muted-foreground">to</span>
                       <Input
                         type="time"
-                        defaultValue="17:00"
+                        value={dayHours.endTime}
+                        onChange={(e) => handleBusinessHoursChange(key, "endTime", e.target.value)}
                         className="w-28"
+                        disabled={!dayHours.enabled}
                       />
                     </div>
-                    <Switch defaultChecked />
-                  </div>
-                )
-              )}
-              {["Saturday", "Sunday"].map((day) => (
-                <div key={day} className="flex items-center justify-between">
-                  <span className="w-24 font-medium text-muted-foreground">
-                    {day}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="time"
-                      defaultValue="09:00"
-                      className="w-28"
-                      disabled
-                    />
-                    <span className="text-muted-foreground">to</span>
-                    <Input
-                      type="time"
-                      defaultValue="14:00"
-                      className="w-28"
-                      disabled
+                    <Switch 
+                      checked={dayHours.enabled}
+                      onCheckedChange={(checked) => handleBusinessHoursChange(key, "enabled", checked)}
                     />
                   </div>
-                  <Switch />
-                </div>
-              ))}
+                );
+              })}
+              {([
+                { key: "saturday", label: "Saturday" },
+                { key: "sunday", label: "Sunday" },
+              ] as const).map(({ key, label }) => {
+                const dayHours = localBusinessHours[key];
+                return (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="w-24 font-medium text-muted-foreground">
+                      {label}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="time"
+                        value={dayHours.startTime}
+                        onChange={(e) => handleBusinessHoursChange(key, "startTime", e.target.value)}
+                        className="w-28"
+                        disabled={!dayHours.enabled}
+                      />
+                      <span className="text-muted-foreground">to</span>
+                      <Input
+                        type="time"
+                        value={dayHours.endTime}
+                        onChange={(e) => handleBusinessHoursChange(key, "endTime", e.target.value)}
+                        className="w-28"
+                        disabled={!dayHours.enabled}
+                      />
+                    </div>
+                    <Switch 
+                      checked={dayHours.enabled}
+                      onCheckedChange={(checked) => handleBusinessHoursChange(key, "enabled", checked)}
+                    />
+                  </div>
+                );
+              })}
             </CardContent>
           </Card>
         </TabsContent>
@@ -199,6 +276,84 @@ export default function Settings() {
           </Card>
 
           <Card variant="elevated" className="animate-slide-up" style={{ animationDelay: "0.1s" }}>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="h-5 w-5" />
+                Timezone
+              </CardTitle>
+              <CardDescription>
+                Configure timezone settings for calendar and time displays.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="timezone-mode">Timezone Mode</Label>
+                    <p className="text-sm text-muted-foreground">
+                      Choose between automatic (device) or manual timezone selection
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={settings.timeZoneMode === "auto" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTimeZoneMode("auto")}
+                    >
+                      Auto
+                    </Button>
+                    <Button
+                      variant={settings.timeZoneMode === "manual" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setTimeZoneMode("manual")}
+                    >
+                      Manual
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-secondary/50">
+                  <p className="text-sm font-medium mb-1">Detected Timezone</p>
+                  <p className="text-sm text-muted-foreground">{detectedTimeZone}</p>
+                </div>
+
+                {settings.timeZoneMode === "manual" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="manual-timezone">Select Timezone</Label>
+                    <Select
+                      value={settings.manualTimeZone || detectedTimeZone}
+                      onValueChange={setManualTimeZone}
+                    >
+                      <SelectTrigger id="manual-timezone">
+                        <SelectValue placeholder="Select a timezone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {COMMON_TIMEZONES.map((tz) => (
+                          <SelectItem key={tz.value} value={tz.value}>
+                            {tz.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Current effective timezone: <span className="font-medium">{effectiveTimeZone}</span>
+                    </p>
+                  </div>
+                )}
+
+                {settings.timeZoneMode === "auto" && (
+                  <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+                    <p className="text-sm font-medium mb-1">Using Device Timezone</p>
+                    <p className="text-sm text-muted-foreground">
+                      The calendar will use your device's detected timezone: <span className="font-medium">{effectiveTimeZone}</span>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card variant="elevated" className="animate-slide-up" style={{ animationDelay: "0.2s" }}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Shield className="h-5 w-5" />

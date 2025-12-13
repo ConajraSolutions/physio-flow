@@ -51,7 +51,7 @@ export default function SessionWorkflow() {
   const { appointmentId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
-  const { patientName, patientId, condition } = location.state || {};
+  const { patientName, patientId, condition, sessionId } = location.state || {};
 
   const [currentStep, setCurrentStep] = useState(1);
   const [sessionData, setSessionData] = useState<SessionData>({
@@ -103,6 +103,7 @@ export default function SessionWorkflow() {
       case 2:
         return (
           <SummaryStep
+            sessionId={sessionId}
             transcript={sessionData.transcript}
             clinicianNotes={sessionData.clinicianNotes}
             summary={sessionData.summary}
@@ -136,6 +137,7 @@ export default function SessionWorkflow() {
             patientName={patientName}
             patientId={patientId}
             appointmentId={appointmentId}
+            sessionId={sessionId}
             sessionData={sessionData}
             onBack={handleBack}
             onComplete={handleExitSession}

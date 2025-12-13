@@ -1,4 +1,4 @@
-import {
+import { 
   Dialog,
   DialogContent,
   DialogHeader,
@@ -21,6 +21,8 @@ import {
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { BillingDialog } from "./BillingDialog";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 interface Appointment {
   id: string;
@@ -31,7 +33,7 @@ interface Appointment {
   date: string;
   time: string;
   type: string;
-  status: "scheduled" | "completed" | "cancelled" | "pending";
+  status: "scheduled" | "completed" | "cancelled" | "pending" | "in_progress";
   condition?: string;
 }
 
@@ -47,7 +49,9 @@ export function PatientDetailsDialog({
   appointment,
 }: PatientDetailsDialogProps) {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [billingOpen, setBillingOpen] = useState(false);
+  const [startingSession, setStartingSession] = useState(false);
 
   if (!appointment) return null;
 
@@ -61,16 +65,84 @@ export function PatientDetailsDialog({
     navigate(`/billing?patient=${appointment.patientId}`);
   };
 
-  const handleStartSession = () => {
-    onOpenChange(false);
-    navigate(`/session-workflow/${appointment.id}`, {
-      state: {
-        patientId: appointment.patientId,
-        patientName: appointment.patientName,
-        appointmentId: appointment.id,
-        condition: appointment.condition
+  // `state` is an object that is sent over to the session workflow page, without
+  // having to embed it in the URL
+  const handleStartSession = async () => {
+    if (!appointment) return;
+
+    setStartingSession(true);
+
+    try {
+      // Mark the appointment as in-progress for scheduling queue
+      const { error: updateError } = await supabase
+        .from("appointments")
+        .update({ status: "in_progress" })
+        .eq("id", appointment.id);
+
+      if (updateError) {
+        throw updateError;
       }
-    });
+
+      // Find an existing session for this appointment/patient
+      const { data: existingSession, error: sessionLookupError } = await supabase
+        .from("sessions")
+        .select("id")
+        .eq("appointment_id", appointment.id)
+        .maybeSingle();
+
+      if (sessionLookupError) {
+        throw sessionLookupError;
+      }
+
+      let sessionId = existingSession?.id;
+
+      // Create session if it doesn't exist yet
+      if (!sessionId) {
+        const { data: newSession, error: sessionCreateError } = await supabase
+          .from("sessions")
+          .insert({
+            patient_id: appointment.patientId,
+            appointment_id: appointment.id,
+            status: "in_progress",
+            clinician_name: "Clinician",
+          })
+          .select("id")
+          .single();
+
+        if (sessionCreateError) {
+          throw sessionCreateError;
+        }
+
+        sessionId = newSession.id;
+      } else {
+        // Make sure the session status reflects in-progress state
+        await supabase
+          .from("sessions")
+          .update({ status: "in_progress" })
+          .eq("id", sessionId);
+      }
+
+      onOpenChange(false); // close the dialog
+
+      navigate(`/session-workflow/${appointment.id}`, {
+        state: {
+          patientId: appointment.patientId,
+          patientName: appointment.patientName,
+          appointmentId: appointment.id,
+          sessionId,
+          condition: appointment.condition,
+        },
+      });
+    } catch (error: any) {
+      console.error("Failed to start session", error);
+      toast({
+        title: "Unable to start session",
+        description: "Please try again or check your connection.",
+        variant: "destructive",
+      });
+    } finally {
+      setStartingSession(false);
+    }
   };
 
   return (
@@ -141,9 +213,10 @@ export function PatientDetailsDialog({
                 className="w-full justify-start" 
                 variant="outline"
                 onClick={handleStartSession}
+                disabled={startingSession}
               >
                 <Stethoscope className="h-4 w-4 mr-2" />
-                Start Session
+                {startingSession ? "Starting..." : "Start Session"}
               </Button>
               
               <Button 

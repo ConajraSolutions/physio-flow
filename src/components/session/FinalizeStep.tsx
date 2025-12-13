@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,9 +13,7 @@ import {
   Mail,
   Check,
   Loader2,
-  Link,
   Sparkles,
-  Copy,
   Plus,
   X,
 } from "lucide-react";
@@ -56,6 +54,7 @@ interface FinalizeStepProps {
   patientName: string;
   patientId: string;
   appointmentId?: string;
+  sessionId?: string;
   sessionData: SessionData;
   onBack: () => void;
   onComplete: () => void;
@@ -78,25 +77,29 @@ export function FinalizeStep({
   patientName,
   patientId,
   appointmentId,
+  sessionId,
   sessionData,
   onBack,
   onComplete,
 }: FinalizeStepProps) {
   const { toast } = useToast();
   const [isSending, setIsSending] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const [isSent, setIsSent] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [recipientEmails, setRecipientEmails] = useState<string[]>([]);
-  const [emailSubject, setEmailSubject] = useState(`Your Treatment Plan from ${new Date().toLocaleDateString()}`);
-  const [emailMessage, setEmailMessage] = useState(
-    `Dear ${patientName || "Patient"},\n\nPlease find your personalized exercise plan below. Follow the prescribed exercises as directed.\n\nIf you have any questions, please don't hesitate to reach out.\n\nBest regards,\nYour Physiotherapy Team`
+  const [emailSubject, setEmailSubject] = useState(
+    `Your Care Plan from ${new Date().toLocaleDateString()}`
   );
-  const [publicPlanUrl, setPublicPlanUrl] = useState<string | null>(null);
+  const [emailMessage, setEmailMessage] = useState(
+    `Hi ${patientName || "there"},\n\nBelow is a clear overview of today's findings and what to do next. Please follow the exercise plan and reach out with any questions.\n\nWarm regards,\nYour Physiotherapy Team`
+  );
+  const [treatmentPlanId, setTreatmentPlanId] = useState<string | null>(null);
 
   const addEmail = () => {
     const email = emailInput.trim();
     if (!email) return;
-    
+
     if (!isValidEmail(email)) {
       toast({
         title: "Invalid email",
@@ -105,7 +108,7 @@ export function FinalizeStep({
       });
       return;
     }
-    
+
     if (recipientEmails.includes(email)) {
       toast({
         title: "Duplicate email",
@@ -114,13 +117,13 @@ export function FinalizeStep({
       });
       return;
     }
-    
+
     setRecipientEmails([...recipientEmails, email]);
     setEmailInput("");
   };
 
   const removeEmail = (emailToRemove: string) => {
-    setRecipientEmails(recipientEmails.filter(email => email !== emailToRemove));
+    setRecipientEmails(recipientEmails.filter((email) => email !== emailToRemove));
   };
 
   const handleEmailKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -130,60 +133,78 @@ export function FinalizeStep({
     }
   };
 
-  const generatePublicLink = async (): Promise<string> => {
-    if (publicPlanUrl) return publicPlanUrl;
-    
-    const token = crypto.randomUUID();
-    const url = `${window.location.origin}/plan/${token}`;
-    
-    // Save plan data to database
-    try {
-      const planData = {
-        patientName,
-        summary: sessionData.summary,
-        selectedExercises: sessionData.selectedExercises,
-      };
-
-      const { error } = await supabase
-        .from("public_plans")
-        .insert({
-          token,
-          patient_id: patientId,
-          patient_name: patientName || "Patient",
-          plan_data: planData,
-        });
-
-      if (error) {
-        console.error("Error saving public plan:", error);
-        toast({
-          title: "Error",
-          description: "Failed to generate public link. Please try again.",
-          variant: "destructive",
-        });
-        throw error;
-      }
-
-      setPublicPlanUrl(url);
-      return url;
-    } catch (error) {
-      console.error("Error generating public link:", error);
-      throw error;
+  // Ensure treatment plan exists for this session (one per session)
+  const ensureTreatmentPlan = async (): Promise<string> => {
+    if (!sessionId) {
+      throw new Error("Session is required before finalizing.");
     }
+
+    if (treatmentPlanId) return treatmentPlanId;
+
+    const { data: existingPlan, error: planLookupError } = await supabase
+      .from("treatment_plans")
+      .select("id")
+      .eq("session_id", sessionId)
+      .eq("patient_id", patientId)
+      .maybeSingle();
+
+    if (planLookupError) throw planLookupError;
+
+    if (existingPlan) {
+      setTreatmentPlanId(existingPlan.id);
+      return existingPlan.id;
+    }
+
+    const { data: newPlan, error: planCreateError } = await supabase
+      .from("treatment_plans")
+      .insert({
+        session_id: sessionId,
+        patient_id: patientId,
+        status: "draft",
+      })
+      .select("id")
+      .single();
+
+    if (planCreateError) throw planCreateError;
+
+    setTreatmentPlanId(newPlan.id);
+    return newPlan.id;
   };
 
-  const copyLink = () => {
-    if (publicPlanUrl) {
-      navigator.clipboard.writeText(publicPlanUrl);
-      toast({
-        title: "Link copied",
-        description: "The public plan link has been copied to your clipboard.",
-      });
+  useEffect(() => {
+    ensureTreatmentPlan().catch((error) => {
+      console.error("Error ensuring treatment plan:", error);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // Patient-friendly content (no SOAP jargon)
+  const createPatientFriendlySummary = (): string => {
+    const summary = sessionData.summary;
+    let patientSummary = "";
+
+    if (summary.subjective) {
+      patientSummary += `<h4 style="color: #333; margin-bottom: 8px; margin-top: 16px;">Pain & Concerns</h4>`;
+      patientSummary += `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${summary.subjective}</p>`;
     }
+
+    if (summary.assessment) {
+      patientSummary += `<h4 style="color: #333; margin-bottom: 8px; margin-top: 16px;">What We Found</h4>`;
+      patientSummary += `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${summary.assessment}</p>`;
+    }
+
+    if (summary.plan) {
+      patientSummary += `<h4 style="color: #333; margin-bottom: 8px; margin-top: 16px;">Therapist Recommendations</h4>`;
+      patientSummary += `<p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${summary.plan}</p>`;
+    }
+
+    return patientSummary;
   };
 
-  const buildEmailHtml = (planUrl: string | null): string => {
+  const buildEmailHtml = (planUrl: string): string => {
     const messageWithBreaks = emailMessage.replace(/\n/g, "<br>");
-    
+    const patientSummary = createPatientFriendlySummary();
+
     const exercisesList = sessionData.selectedExercises
       .map((exercise) => {
         const details = [];
@@ -191,50 +212,41 @@ export function FinalizeStep({
         if (exercise.reps) details.push(`${exercise.reps} reps`);
         if (exercise.duration_seconds) details.push(`${exercise.duration_seconds}s hold`);
         const freq = frequencyLabels[exercise.frequency] || exercise.frequency;
-        
-        return `<li><strong>${exercise.name}</strong> – ${details.join(" × ")} (${freq})</li>`;
+
+        let exerciseHtml = `<li style="margin-bottom: 12px;"><strong>${exercise.name}</strong>`;
+        if (details.length > 0) {
+          exerciseHtml += ` - ${details.join(", ")}`;
+        }
+        exerciseHtml += ` (${freq})`;
+        if (exercise.notes) {
+          exerciseHtml += `<br><span style="color: #666; font-size: 0.9em;">Note: ${exercise.notes}</span>`;
+        }
+        exerciseHtml += `</li>`;
+        return exerciseHtml;
       })
       .join("");
 
     return `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <p>Dear ${patientName || "Patient"},</p>
-        
         <p>${messageWithBreaks}</p>
-        
-        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
-        
-        <h3 style="color: #333; margin-bottom: 16px;">Your Treatment Summary</h3>
-        
-        <h4 style="color: #666; margin-bottom: 8px;">Subjective</h4>
-        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.subjective}</p>
-        
-        <h4 style="color: #666; margin-bottom: 8px;">Objective</h4>
-        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.objective}</p>
-        
-        <h4 style="color: #666; margin-bottom: 8px;">Assessment</h4>
-        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.assessment}</p>
-        
-        <h4 style="color: #666; margin-bottom: 8px;">Plan</h4>
-        <p style="background: #f9f9f9; padding: 12px; border-radius: 6px; margin-bottom: 16px;">${sessionData.summary.plan}</p>
-        
-        <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 24px 0;" />
-        
-        <h3 style="color: #333; margin-bottom: 16px;">Prescribed Exercises</h3>
-        <ul style="padding-left: 20px; margin-bottom: 24px;">
+
+        <h3 style="color: #333; margin: 24px 0 12px;">Pain Summary & Findings</h3>
+        ${patientSummary}
+
+        <h3 style="color: #333; margin: 24px 0 12px;">Exercise Plan</h3>
+        <ul style="padding-left: 20px; margin-bottom: 24px; list-style-type: disc;">
           ${exercisesList}
         </ul>
-        
-        ${planUrl ? `
-        <p>You can view your full plan here:</p>
+
+        <p style="margin-top: 16px;">View your complete exercise plan here:</p>
         <p>
-          <a href="${planUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">
-            View Your Exercise Plan
+          <a href="${planUrl}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500;">
+            View Your Plan
           </a>
         </p>
-        ` : ''}
-        
-        <p style="margin-top: 32px; color: #666;">
+
+        <p style="margin-top: 24px; color: #666;">
           Best regards,<br />
           Your Physiotherapy Team
         </p>
@@ -255,33 +267,22 @@ export function FinalizeStep({
     setIsSending(true);
 
     try {
-      // Try to generate public link if not already generated (this will save to database)
-      // If it fails, we'll still send the email without the link
-      let planUrl: string | null = null;
-      try {
-        planUrl = await generatePublicLink();
-      } catch (linkError: any) {
-        console.error("Failed to generate public link, continuing without it:", linkError);
-        console.error("Link generation error details:", {
-          message: linkError?.message,
-          code: linkError?.code,
-          details: linkError?.details,
-          hint: linkError?.hint,
-        });
-        // Show a warning but don't block email sending
-        toast({
-          title: "Link generation failed",
-          description: "Email will be sent without public link. Check console for details.",
-          variant: "destructive",
-        });
-        // Continue without the public link - email will still be sent
-      }
-      
-      // Build the HTML email body (with or without the link)
-      const htmlBody = buildEmailHtml(planUrl || "");
+      const planId = await ensureTreatmentPlan();
+      const planUrl = `${window.location.origin}/plan/${planId}`;
 
-      // Send to all recipients
-      const sendPromises = recipientEmails.map(email =>
+      const htmlBody = buildEmailHtml(planUrl);
+
+      if (planId) {
+        await supabase
+          .from("treatment_plans")
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+          })
+          .eq("id", planId);
+      }
+
+      const sendPromises = recipientEmails.map((email) =>
         supabase.functions.invoke("send-plan-email", {
           body: {
             to: email,
@@ -292,29 +293,28 @@ export function FinalizeStep({
       );
 
       const results = await Promise.all(sendPromises);
-      
-      // Check for any errors
-      const errors = results.filter(r => r.error || r.data?.success === false);
-      
+      const errors = results.filter((r) => r.error || r.data?.success === false);
+
+      if (errors.length === results.length) {
+        throw new Error("All emails failed to send");
+      }
+
       if (errors.length > 0) {
-        console.error("Some emails failed to send:", errors);
-        if (errors.length === results.length) {
-          throw new Error("All emails failed to send");
-        }
         toast({
           title: "Partial success",
-          description: `${results.length - errors.length} of ${results.length} emails sent successfully.`,
+          description: `${results.length - errors.length} of ${results.length} emails sent.`,
         });
       } else {
         toast({
           title: "Treatment plan sent!",
-          description: `The exercise plan has been emailed to ${recipientEmails.length} recipient${recipientEmails.length > 1 ? 's' : ''}.`,
+          description: `Emailed to ${recipientEmails.length} recipient${recipientEmails.length > 1 ? "s" : ""}.`,
         });
       }
-      
+
       setIsSent(true);
+      setTreatmentPlanId(planId);
     } catch (error: any) {
-      console.error("Error sending treatment plan:", error);
+      console.error("Error sending plan", error);
       toast({
         title: "Error",
         description: "Failed to send treatment plan. Please try again.",
@@ -325,41 +325,109 @@ export function FinalizeStep({
     }
   };
 
+  const finalizeSessionNotes = async () => {
+    if (!sessionId) return;
+
+    const { data: latest, error: latestError } = await supabase
+      .from("session_notes")
+      .select("id")
+      .eq("session_id", sessionId)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (latestError) throw latestError;
+
+    if (latest?.id) {
+      await supabase
+        .from("session_notes")
+        .update({ is_temporary: false, edit_type: "final" })
+        .eq("id", latest.id);
+
+      await supabase
+        .from("session_notes")
+        .delete()
+        .eq("session_id", sessionId)
+        .eq("is_temporary", true)
+        .neq("id", latest.id);
+    }
+  };
+
+  const handleCompleteSession = async () => {
+    setFinalizing(true);
+    try {
+      await finalizeSessionNotes();
+
+      if (sessionId) {
+        await supabase.from("sessions").update({ status: "completed" }).eq("id", sessionId);
+      }
+
+      if (appointmentId) {
+        await supabase.from("appointments").update({ status: "completed" }).eq("id", appointmentId);
+      }
+
+      if (treatmentPlanId && isSent) {
+        await supabase
+          .from("treatment_plans")
+          .update({ status: "sent", sent_at: new Date().toISOString() })
+          .eq("id", treatmentPlanId);
+      }
+
+      toast({
+        title: "Session completed",
+        description: "Session and appointment archived as completed.",
+      });
+
+      onComplete();
+    } catch (error: any) {
+      console.error("Finalize session failed", error);
+      toast({
+        title: "Unable to complete session",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setFinalizing(false);
+    }
+  };
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* AI Summary Section */}
-      <Card variant="elevated" className="lg:col-span-2">
+    <div className="space-y-6">
+      {/* AI Summary Section (SOAP is clinician-only) */}
+      <Card variant="elevated">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">AI Summary</CardTitle>
+            <CardTitle className="text-lg">AI Summary (SOAP)</CardTitle>
           </div>
           <p className="text-sm text-muted-foreground">
-            Final SOAP notes and treatment overview
+            Clinical summary for records. Not sent to the patient.
           </p>
         </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-primary mb-1">Subjective</h4>
-                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.subjective}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-primary mb-1">Objective</h4>
-                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.objective}</p>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-sm font-medium text-primary mb-1">Assessment</h4>
-                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.assessment}</p>
-              </div>
-              <div>
-                <h4 className="text-sm font-medium text-primary mb-1">Plan</h4>
-                <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">{sessionData.summary.plan}</p>
-              </div>
-            </div>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-primary">Subjective</h4>
+            <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">
+              {sessionData.summary.subjective}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-primary">Objective</h4>
+            <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">
+              {sessionData.summary.objective}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-primary">Assessment</h4>
+            <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">
+              {sessionData.summary.assessment}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <h4 className="text-sm font-medium text-primary">Plan</h4>
+            <p className="text-sm text-foreground bg-secondary/30 p-3 rounded-lg">
+              {sessionData.summary.plan}
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -426,6 +494,9 @@ export function FinalizeStep({
             <Mail className="h-5 w-5 text-primary" />
             <CardTitle className="text-lg">Email to Patient</CardTitle>
           </div>
+          <p className="text-sm text-muted-foreground">
+            SOAP stays internal. Email includes patient-friendly summary and exercises.
+          </p>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -446,9 +517,9 @@ export function FinalizeStep({
             {recipientEmails.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {recipientEmails.map((email) => (
-                  <Badge 
-                    key={email} 
-                    variant="secondary" 
+                  <Badge
+                    key={email}
+                    variant="secondary"
                     className="flex items-center gap-1 py-1 px-2"
                   >
                     <Mail className="h-3 w-3" />
@@ -485,58 +556,15 @@ export function FinalizeStep({
         </CardContent>
       </Card>
 
-      {/* Public Link & Send */}
-      <Card variant="elevated" className="lg:col-span-2">
-        <CardHeader className="pb-4">
-          <div className="flex items-center gap-2">
-            <Link className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Public Exercise Plan Link</CardTitle>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            Generate a secure link that patients can access without logging in
-          </p>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
-            {publicPlanUrl ? (
-              <div className="flex-1 flex items-center gap-2">
-                <Input value={publicPlanUrl} readOnly className="flex-1" />
-                <Button variant="outline" size="icon" onClick={copyLink}>
-                  <Copy className="h-4 w-4" />
-                </Button>
-              </div>
-            ) : (
-              <Button 
-                variant="outline" 
-                onClick={async () => {
-                  try {
-                    await generatePublicLink();
-                    toast({
-                      title: "Link generated",
-                      description: "Public plan link has been generated successfully.",
-                    });
-                  } catch (error) {
-                    // Error already handled in generatePublicLink
-                  }
-                }}
-              >
-                <Link className="h-4 w-4 mr-2" />
-                Generate Public Link
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Send Section */}
-      <Card variant="elevated" className="lg:col-span-2">
+      {/* Send / Complete Session */}
+      <Card variant="elevated">
         <CardHeader className="pb-4">
           <div className="flex items-center gap-2">
             <User className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">Send to Patient</CardTitle>
+            <CardTitle className="text-lg">Send / Complete Session</CardTitle>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -546,8 +574,8 @@ export function FinalizeStep({
                 <p className="font-medium text-foreground">{patientName || "Patient"}</p>
                 <p className="text-sm text-muted-foreground flex items-center gap-1">
                   <Mail className="h-3 w-3" />
-                  {recipientEmails.length > 0 
-                    ? `${recipientEmails.length} recipient${recipientEmails.length > 1 ? 's' : ''}` 
+                  {recipientEmails.length > 0
+                    ? `${recipientEmails.length} recipient${recipientEmails.length > 1 ? "s" : ""}`
                     : "No recipients added"}
                 </p>
               </div>
@@ -557,12 +585,12 @@ export function FinalizeStep({
               {isSent && (
                 <div className="flex items-center gap-2 text-primary">
                   <Check className="h-5 w-5" />
-                  <span className="font-medium">Sent successfully!</span>
+                  <span className="font-medium">Sent</span>
                 </div>
               )}
-              <Button 
-                onClick={handleSendToPatient} 
-                disabled={isSending || recipientEmails.length === 0} 
+              <Button
+                onClick={handleSendToPatient}
+                disabled={isSending || recipientEmails.length === 0}
                 size="lg"
               >
                 {isSending ? (
@@ -573,26 +601,34 @@ export function FinalizeStep({
                 ) : (
                   <>
                     <Send className="h-4 w-4 mr-2" />
-                    {isSent ? "Send Again" : "Send Exercise Plan"}
+                    {isSent ? "Send Again" : "Send Plan"}
                   </>
                 )}
               </Button>
             </div>
           </div>
+
+          <div className="flex justify-between pt-2">
+            <Button variant="outline" onClick={onBack} disabled={isSending || finalizing}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Button onClick={handleCompleteSession} disabled={finalizing || !sessionId}>
+              {finalizing ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Completing...
+                </>
+              ) : (
+                <>
+                  Complete Session
+                  <Check className="h-4 w-4 ml-2" />
+                </>
+              )}
+            </Button>
+          </div>
         </CardContent>
       </Card>
-
-      {/* Navigation */}
-      <div className="lg:col-span-2 flex justify-between">
-        <Button variant="outline" onClick={onBack} disabled={isSending}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back
-        </Button>
-        <Button onClick={onComplete} disabled={!isSent}>
-          Complete Session
-          <Check className="h-4 w-4 ml-2" />
-        </Button>
-      </div>
     </div>
   );
 }

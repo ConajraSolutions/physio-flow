@@ -20,7 +20,7 @@ interface Appointment {
   time: string;
   endTime: string;
   type: string;
-  status: "scheduled" | "completed" | "cancelled" | "pending";
+  status: "scheduled" | "completed" | "cancelled" | "pending" | "in_progress";
   clinician: string;
 }
 

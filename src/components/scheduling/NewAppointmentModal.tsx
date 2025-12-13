@@ -222,6 +222,9 @@ export function NewAppointmentModal({
             <Calendar className="h-5 w-5 text-primary" />
             New Appointment
           </DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Create a new appointment and optionally register a new patient.
+          </p>
         </DialogHeader>
 
         <div className="space-y-6 py-4">

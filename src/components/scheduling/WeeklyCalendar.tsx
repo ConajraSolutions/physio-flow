@@ -7,6 +7,10 @@ import { useNavigate } from "react-router-dom";
 import { PatientDetailsDialog } from "@/components/dashboard/PatientDetailsDialog";
 import { NewAppointmentModal } from "./NewAppointmentModal";
 import { supabase } from "@/integrations/supabase/client";
+import { useTimeZoneSettings } from "@/hooks/useTimeZoneSettings";
+import { getTimeInTimeZone, getDateInTimeZone } from "@/lib/timeZone";
+import { useBusinessHours } from "@/hooks/useBusinessHours";
+import { useToast } from "@/hooks/use-toast";
 
 interface Appointment {
   id: string;
@@ -18,23 +22,29 @@ interface Appointment {
   time: string;
   duration: number;
   type: string;
-  status: "scheduled" | "completed" | "cancelled" | "pending";
+  status: "scheduled" | "completed" | "cancelled" | "pending" | "in_progress";
   condition?: string;
 }
 
-const timeSlots = [
-  "08:00", "08:30", "09:00", "09:30", "10:00", "10:30",
-  "11:00", "11:30", "12:00", "12:30", "13:00", "13:30",
-  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00"
-];
+// Generate full 24-hour time slots (00:00 to 23:30 in 30-minute intervals)
+const timeSlots = Array.from({ length: 48 }, (_, i) => {
+  const hours = Math.floor(i / 2);
+  const minutes = (i % 2) * 30;
+  return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}`;
+});
 
 const SLOT_HEIGHT = 40; // Reduced from 60 to fit more on screen
 const HEADER_HEIGHT = 180; // Approximate header + navigation height
 
 export function WeeklyCalendar() {
   const navigate = useNavigate();
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const { effectiveTimeZone } = useTimeZoneSettings();
+  const { isWithinBusinessHours } = useBusinessHours();
+  const { toast } = useToast();
+  const [weekStart, setWeekStart] = useState(() =>
+    startOfWeek(getDateInTimeZone(effectiveTimeZone), { weekStartsOn: 1 })
+  );
+  const [, setCurrentTime] = useState(() => getDateInTimeZone(effectiveTimeZone));
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
@@ -67,6 +77,7 @@ export function WeeklyCalendar() {
       `)
       .gte("appointment_date", startDate)
       .lte("appointment_date", endDate)
+      .neq("status", "completed")
       .order("start_time");
 
     if (error) {
@@ -103,13 +114,24 @@ export function WeeklyCalendar() {
     fetchAppointments();
   }, [fetchAppointments]);
 
-  // Update current time every minute
+  // Update current time every minute using effective timezone
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 60000);
+    const updateTime = () => {
+      setCurrentTime(getDateInTimeZone(effectiveTimeZone));
+    };
+    
+    // Update immediately
+    updateTime();
+    
+    // Update every minute
+    const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [effectiveTimeZone]);
+
+  // Reset week view when timezone changes to keep cursor aligned
+  useEffect(() => {
+    setWeekStart(startOfWeek(getDateInTimeZone(effectiveTimeZone), { weekStartsOn: 1 }));
+  }, [effectiveTimeZone]);
 
   const weekDays = Array.from({ length: 5 }, (_, i) => addDays(weekStart, i));
 
@@ -132,43 +154,94 @@ export function WeeklyCalendar() {
   };
 
   const getCurrentTimePosition = () => {
-    const hours = currentTime.getHours();
-    const minutes = currentTime.getMinutes();
-    const totalMinutes = (hours - 8) * 60 + minutes;
+    // Get time in the effective timezone
+    const { hours, minutes } = getTimeInTimeZone(effectiveTimeZone);
+    // Calculate position from start of day (00:00)
+    const totalMinutes = hours * 60 + minutes;
     return (totalMinutes / 30) * SLOT_HEIGHT;
   };
 
   const isCurrentTimeVisible = () => {
-    const hours = currentTime.getHours();
-    return hours >= 8 && hours < 18;
+    // Get time in the effective timezone
+    const { hours } = getTimeInTimeZone(effectiveTimeZone);
+    // Show cursor for all hours (0-23) since we now show full 24 hours
+    return hours >= 0 && hours < 24;
   };
 
   const isAppointmentNow = (apt: Appointment) => {
     const aptDate = parseISO(apt.date);
-    if (!isSameDay(aptDate, currentTime)) return false;
+    // Get current date in timezone for day comparison
+    const { date: currentDateInTz } = getTimeInTimeZone(effectiveTimeZone);
+    if (!isSameDay(aptDate, currentDateInTz)) return false;
+
+    // Get current time in timezone
+    const { hours: currentHours, minutes: currentMinutes } = getTimeInTimeZone(effectiveTimeZone);
+    const currentTimeInTz = new Date(currentDateInTz);
+    currentTimeInTz.setHours(currentHours, currentMinutes, 0, 0);
 
     const [hours, minutes] = apt.time.split(":").map(Number);
-    const aptStart = new Date(currentTime);
+    const aptStart = new Date(currentDateInTz);
     aptStart.setHours(hours, minutes, 0, 0);
     const aptEnd = addMinutes(aptStart, apt.duration);
 
-    return currentTime >= aptStart && currentTime < aptEnd;
+    return currentTimeInTz >= aptStart && currentTimeInTz < aptEnd;
   };
 
-  const handleStartSession = (apt: Appointment) => {
-    navigate(`/session-workflow/${apt.id}`, { 
-      state: { 
-        patientId: apt.patientId,
-        patientName: apt.patientName,
-        appointmentId: apt.id,
-        condition: apt.condition
-      } 
-    });
+  const handleStartSession = async (apt: Appointment) => {
+    try {
+      await supabase.from("appointments").update({ status: "in_progress" }).eq("id", apt.id);
+
+      const { data: existingSession, error: sessionLookupError } = await supabase
+        .from("sessions")
+        .select("id")
+        .eq("appointment_id", apt.id)
+        .maybeSingle();
+
+      if (sessionLookupError) throw sessionLookupError;
+
+      let sessionId = existingSession?.id;
+
+      if (!sessionId) {
+        const { data: newSession, error: sessionCreateError } = await supabase
+          .from("sessions")
+          .insert({
+            patient_id: apt.patientId,
+            appointment_id: apt.id,
+            status: "in_progress",
+            clinician_name: "Clinician",
+          })
+          .select("id")
+          .single();
+
+        if (sessionCreateError) throw sessionCreateError;
+        sessionId = newSession.id;
+      } else {
+        await supabase.from("sessions").update({ status: "in_progress" }).eq("id", sessionId);
+      }
+
+      navigate(`/session-workflow/${apt.id}`, {
+        state: {
+          patientId: apt.patientId,
+          patientName: apt.patientName,
+          appointmentId: apt.id,
+          sessionId,
+          condition: apt.condition,
+        },
+      });
+    } catch (error: any) {
+      console.error("Failed to start session", error);
+      toast({
+        title: "Unable to start session",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handlePreviousWeek = () => setWeekStart(addDays(weekStart, -7));
   const handleNextWeek = () => setWeekStart(addDays(weekStart, 7));
-  const handleToday = () => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const handleToday = () =>
+    setWeekStart(startOfWeek(getDateInTimeZone(effectiveTimeZone), { weekStartsOn: 1 }));
 
   // Drag and drop handlers
   const handleDragStart = (apt: Appointment) => {
@@ -267,7 +340,8 @@ export function WeeklyCalendar() {
           <div className="grid grid-cols-[60px_repeat(5,1fr)] gap-1 mb-1 flex-shrink-0">
             <div />
             {weekDays.map((day, index) => {
-              const isToday = isSameDay(day, new Date());
+              const { date: currentDateInTz } = getTimeInTimeZone(effectiveTimeZone);
+              const isToday = isSameDay(day, currentDateInTz);
               return (
                 <div
                   key={index}
@@ -293,7 +367,10 @@ export function WeeklyCalendar() {
           {/* Time Grid - Scrollable */}
           <div className="relative flex-1 overflow-y-auto">
             {/* Current Time Line */}
-            {weekDays.some(d => isSameDay(d, currentTime)) && isCurrentTimeVisible() && (
+            {weekDays.some(d => {
+              const { date: currentDateInTz } = getTimeInTimeZone(effectiveTimeZone);
+              return isSameDay(d, currentDateInTz);
+            }) && isCurrentTimeVisible() && (
               <div 
                 className="absolute left-[60px] right-0 h-0.5 bg-destructive z-20 pointer-events-none"
                 style={{ top: `${getCurrentTimePosition()}px` }}
@@ -315,11 +392,14 @@ export function WeeklyCalendar() {
 
                   {weekDays.map((day, dayIndex) => {
                     const slotAppointments = getAppointmentsForSlot(day, time);
+                    const isBusinessHours = isWithinBusinessHours(day, time);
 
                     return (
                       <div
                         key={`${dayIndex}-${time}`}
-                        className="border-t border-border/30 relative"
+                        className={`border-t border-border/30 relative ${
+                          !isBusinessHours ? "bg-muted/30" : ""
+                        }`}
                         style={{ minHeight: `${SLOT_HEIGHT}px` }}
                         onDragOver={handleDragOver}
                         onDrop={() => handleDrop(day, time)}

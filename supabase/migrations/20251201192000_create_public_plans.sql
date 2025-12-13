@@ -22,3 +22,5 @@ CREATE POLICY "Allow authenticated insert to public_plans" ON public.public_plan
 -- Create index on token for fast lookups
 CREATE INDEX idx_public_plans_token ON public.public_plans(token);
 
+
+
