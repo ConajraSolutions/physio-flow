@@ -6,3 +6,4 @@ ADD COLUMN IF NOT EXISTS public_token TEXT UNIQUE;
 CREATE INDEX IF NOT EXISTS idx_treatment_plans_public_token ON public.treatment_plans(public_token);
 
 
+

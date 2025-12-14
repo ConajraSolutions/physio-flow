@@ -325,7 +325,61 @@ export function FinalizeStep({
     }
   };
 
-  const finalizeSessionNotes = async () => {
+  const buildSoapNotes = (): string => {
+    const parts: string[] = [];
+    const { subjective, objective, assessment, plan } = sessionData.summary;
+    if (subjective) parts.push(`Subjective: ${subjective}`);
+    if (objective) parts.push(`Objective: ${objective}`);
+    if (assessment) parts.push(`Assessment: ${assessment}`);
+    if (plan) parts.push(`Plan: ${plan}`);
+
+    if (sessionData.selectedExercises?.length) {
+      const names = sessionData.selectedExercises.slice(0, 3).map((ex) => ex.name).join(", ");
+      parts.push(`Exercises: ${names}${sessionData.selectedExercises.length > 3 ? "..." : "."}`);
+    }
+
+    return parts.join(" ").slice(0, 600);
+  };
+
+  const buildAiSummary = async (): Promise<string | null> => {
+    try {
+      const payload = {
+        subjective: sessionData.summary.subjective,
+        objective: sessionData.summary.objective,
+        assessment: sessionData.summary.assessment,
+        plan: sessionData.summary.plan,
+        exercises: sessionData.selectedExercises.map((ex) => ({
+          name: ex.name,
+          sets: ex.sets,
+          reps: ex.reps,
+          duration_seconds: ex.duration_seconds,
+          frequency: ex.frequency,
+          notes: ex.notes,
+        })),
+      };
+
+      const { data, error } = await supabase.functions.invoke("ai-session-summary", {
+        body: {
+          payload,
+          instruction:
+            "Generate a 2–3 sentence narrative summary of this physiotherapy session. Use a gentle, professional, and comprehensive tone. \
+            Write in complete sentences (not bullet points or note-taking style), presenting the summary as a concise, story-like overview—similar to a brief pitch"
+        },
+      });
+
+      if (error) {
+        console.error("AI summary error", error);
+        return null;
+      }
+
+      return data?.summary || null;
+    } catch (err) {
+      console.error("AI summary exception", err);
+      return null;
+    }
+  };
+
+  const finalizeSessionNotes = async (): Promise<string | null> => {
     if (!sessionId) return;
 
     const { data: latest, error: latestError } = await supabase
@@ -351,12 +405,21 @@ export function FinalizeStep({
         .eq("is_temporary", true)
         .neq("id", latest.id);
     }
+
+    return latest?.id || null;
   };
 
   const handleCompleteSession = async () => {
     setFinalizing(true);
     try {
-      await finalizeSessionNotes();
+      const latestNoteId = await finalizeSessionNotes();
+
+      if (sessionId && latestNoteId) {
+        const aiSummary = await buildAiSummary();
+        if (aiSummary) {
+          await supabase.from("session_notes").update({ full_summary: aiSummary }).eq("id", latestNoteId);
+        }
+      }
 
       if (sessionId) {
         await supabase.from("sessions").update({ status: "completed" }).eq("id", sessionId);

@@ -129,18 +129,19 @@ export function SummaryStep({
 
     setUiState("generating");
     try {
-      const { data, error } = await supabase.functions.invoke("generate-summary", {
+      const { data, error } = await supabase.functions.invoke("generate-soap-notes", {
         body: { transcript, clinicianNotes },
       });
 
       if (error) throw error;
 
-      if (data?.summary) {
+      const soap = data?.summary || data?.soap;
+      if (soap) {
         const generatedSummary: Summary = {
-          subjective: data.summary.subjective || "",
-          objective: data.summary.objective || "",
-          assessment: data.summary.assessment || "",
-          plan: data.summary.plan || "",
+          subjective: soap.subjective || "",
+          objective: soap.objective || "",
+          assessment: soap.assessment || "",
+          plan: soap.plan || "",
         };
 
         const nextVersion = (versions[0]?.version || 0) + 1;
@@ -167,6 +168,12 @@ export function SummaryStep({
         setActiveVersionId(newVersion.id);
         onSummaryChange(newVersion.summary);
         lastSavedSummaryRef.current = JSON.stringify(newVersion.summary);
+      } else {
+        toast({
+          title: "No notes returned",
+          description: "The AI did not return SOAP notes. Please try again.",
+          variant: "destructive",
+        });
       }
     } catch (error) {
       console.error("Error generating summary:", error);
@@ -191,23 +198,24 @@ export function SummaryStep({
     setUiState("revising");
 
     try {
-      const { data, error } = await supabase.functions.invoke("generate-summary", {
+      const { data, error } = await supabase.functions.invoke("generate-soap-notes", {
         body: {
           transcript,
           clinicianNotes,
           editInstruction: revisionPromptUsed,
-          currentSummary: summary,
+          currentSoap: summary,
         },
       });
 
       if (error) throw error;
 
-      if (data?.summary) {
+      const soap = data?.summary || data?.soap;
+      if (soap) {
         const revisedSummary: Summary = {
-          subjective: data.summary.subjective || summary.subjective,
-          objective: data.summary.objective || summary.objective,
-          assessment: data.summary.assessment || summary.assessment,
-          plan: data.summary.plan || summary.plan,
+          subjective: soap.subjective || summary.subjective,
+          objective: soap.objective || summary.objective,
+          assessment: soap.assessment || summary.assessment,
+          plan: soap.plan || summary.plan,
         };
 
         const nextVersion = (versions[0]?.version || 0) + 1;
@@ -240,6 +248,12 @@ export function SummaryStep({
         toast({
           title: "Summary Updated",
           description: "AI has revised the summary based on your instruction.",
+        });
+      } else {
+        toast({
+          title: "No notes returned",
+          description: "The AI did not return SOAP notes. Please try again.",
+          variant: "destructive",
         });
       }
     } catch (error) {

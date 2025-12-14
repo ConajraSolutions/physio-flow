@@ -17,13 +17,15 @@ export interface BusinessHours {
 }
 
 const STORAGE_KEY = "physio-flow-business-hours";
+const SAFE_DEFAULT_START = "09:00";
+const SAFE_DEFAULT_END = "17:00";
 
 const DEFAULT_BUSINESS_HOURS: BusinessHours = {
-  monday: { enabled: true, startTime: "08:00", endTime: "17:00" },
-  tuesday: { enabled: true, startTime: "08:00", endTime: "17:00" },
-  wednesday: { enabled: true, startTime: "08:00", endTime: "17:00" },
-  thursday: { enabled: true, startTime: "08:00", endTime: "17:00" },
-  friday: { enabled: true, startTime: "08:00", endTime: "17:00" },
+  monday: { enabled: true, startTime: SAFE_DEFAULT_START, endTime: SAFE_DEFAULT_END },
+  tuesday: { enabled: true, startTime: SAFE_DEFAULT_START, endTime: SAFE_DEFAULT_END },
+  wednesday: { enabled: true, startTime: SAFE_DEFAULT_START, endTime: SAFE_DEFAULT_END },
+  thursday: { enabled: true, startTime: SAFE_DEFAULT_START, endTime: SAFE_DEFAULT_END },
+  friday: { enabled: true, startTime: SAFE_DEFAULT_START, endTime: SAFE_DEFAULT_END },
   saturday: { enabled: false, startTime: "09:00", endTime: "14:00" },
   sunday: { enabled: false, startTime: "09:00", endTime: "14:00" },
 };
@@ -58,6 +60,11 @@ const getDayName = (date: Date): keyof BusinessHours => {
   const day = date.getDay();
   const days: (keyof BusinessHours)[] = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   return days[day];
+};
+
+const parseTimeToMinutes = (time: string): number => {
+  const [hours, minutes] = time.split(":").map(Number);
+  return (hours || 0) * 60 + (minutes || 0);
 };
 
 export const useBusinessHours = () => {
@@ -103,13 +110,37 @@ export const useBusinessHours = () => {
     return businessHours[dayName];
   }, [businessHours]);
 
+  const getBusinessHoursRange = useCallback((): { start: string; end: string } => {
+    const weekdayKeys: (keyof BusinessHours)[] = ["monday", "tuesday", "wednesday", "thursday", "friday"];
+    const enabledDays = weekdayKeys
+      .map((day) => businessHours[day])
+      .filter((day) => day?.enabled);
+
+    if (!enabledDays.length) {
+      return { start: SAFE_DEFAULT_START, end: SAFE_DEFAULT_END };
+    }
+
+    const start = enabledDays.reduce((earliest, day) => {
+      return parseTimeToMinutes(day.startTime) < parseTimeToMinutes(earliest) ? day.startTime : earliest;
+    }, enabledDays[0].startTime || SAFE_DEFAULT_START);
+
+    const end = enabledDays.reduce((latest, day) => {
+      return parseTimeToMinutes(day.endTime) > parseTimeToMinutes(latest) ? day.endTime : latest;
+    }, enabledDays[0].endTime || SAFE_DEFAULT_END);
+
+    return {
+      start: start || SAFE_DEFAULT_START,
+      end: end || SAFE_DEFAULT_END,
+    };
+  }, [businessHours]);
+
   return {
     businessHours,
     updateBusinessHours,
     updateDay,
     isWithinBusinessHours,
     getDayHours,
+    getBusinessHoursRange,
   };
 };
-
 

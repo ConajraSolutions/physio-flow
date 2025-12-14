@@ -5,11 +5,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-interface SummaryRequest {
+interface SoapRequest {
   transcript: string;
   clinicianNotes: string;
   editInstruction?: string;
-  currentSummary?: {
+  currentSoap?: {
     subjective: string;
     objective: string;
     assessment: string;
@@ -23,7 +23,7 @@ serve(async (req) => {
   }
 
   try {
-    const { transcript, clinicianNotes, editInstruction, currentSummary }: SummaryRequest = await req.json();
+    const { transcript, clinicianNotes, editInstruction, currentSoap }: SoapRequest = await req.json();
     const apiKey = Deno.env.get("PHYSIO_AI_KEY");
 
     if (!apiKey) {
@@ -37,15 +37,14 @@ serve(async (req) => {
     let systemPrompt = "";
     let userPrompt = "";
 
-    if (editInstruction && currentSummary) {
-      // EXACT Revision Prompt from master prompt - Step 4
-      systemPrompt = `You are a licensed physiotherapist. You are editing an existing set of SOAP notes. The text below represents the current version of the SOAP notes that we are working with.
+    if (editInstruction && currentSoap) {
+      systemPrompt = `You are a licensed physiotherapist. You are editing an existing set of SOAP notes.
 
 Rules:
-• Maintain the original SOAP format (Subjective, Objective, Assessment, Plan).
-• Modify only what is necessary to satisfy the revision request.
-• Preserve correct physiotherapy terminology.
-• Keep the notes concise, accurate, and clinically appropriate.
+- Maintain the original SOAP format (Subjective, Objective, Assessment, Plan).
+- Modify only what is necessary to satisfy the revision request.
+- Preserve correct physiotherapy terminology.
+- Keep the notes concise, accurate, and clinically appropriate.
 
 Output format: Return ONLY valid JSON with this exact structure:
 {
@@ -56,25 +55,23 @@ Output format: Return ONLY valid JSON with this exact structure:
 }`;
 
       userPrompt = `Current SOAP Notes:
-Subjective: ${currentSummary.subjective}
-Objective: ${currentSummary.objective}
-Assessment: ${currentSummary.assessment}
-Plan: ${currentSummary.plan}
+Subjective: ${currentSoap.subjective}
+Objective: ${currentSoap.objective}
+Assessment: ${currentSoap.assessment}
+Plan: ${currentSoap.plan}
 
-Your task is to apply the following revision request to the notes while preserving clinical accuracy and SOAP structure:
+Revision Request: ${editInstruction}
 
-Revision Request: ${editInstruction}`;
+Apply the revision while keeping SOAP structure.`;
     } else {
-      // EXACT Initial SOAP Generation Prompt from master prompt - Step 2
-      systemPrompt = `You are a licensed physiotherapist with expertise in orthopedic and musculoskeletal assessment. Your job is to merge two sources of clinical information: (1) a transcript of a consultation between the patient and clinician, and (2) the clinician's typed notes. Your goal is to consolidate both sources into a single, accurate, clinically appropriate set of SOAP notes.
+      systemPrompt = `You are a licensed physiotherapist. Merge the transcript and clinician notes into a single, accurate set of SOAP notes.
 
-Follow these rules:
-• Remove filler conversation, greetings, unrelated dialogue, and repetitions.
-• Extract clinically relevant details only.
-• Merge transcript information and clinician notes into one unified narrative.
-• Maintain physiotherapy-specific terminology.
-• Ensure Subjective, Objective, Assessment, and Plan are clearly separated.
-• Ensure treatment goals and contributing factors are captured if mentioned.
+Rules:
+- Remove filler conversation and unrelated dialogue.
+- Extract clinically relevant details only.
+- Maintain physiotherapy terminology.
+- Keep Subjective, Objective, Assessment, and Plan clearly separated.
+- Include treatment goals and contributing factors if mentioned.
 
 Output format: Return ONLY valid JSON with this exact structure:
 {
@@ -90,19 +87,20 @@ ${transcript || "No transcript available"}
 CLINICIAN NOTES:
 ${clinicianNotes || "No additional notes"}
 
-Generate a comprehensive SOAP note based on this information.`;
+Generate SOAP notes now.`;
     }
 
-    console.log("Calling OpenAI API for summary generation");
+    console.log("Calling OpenAI API for SOAP note generation");
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -113,7 +111,7 @@ Generate a comprehensive SOAP note based on this information.`;
     if (!response.ok) {
       const errorText = await response.text();
       console.error("OpenAI API error:", response.status, errorText);
-      
+
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429,
@@ -138,32 +136,49 @@ Generate a comprehensive SOAP note based on this information.`;
 
     console.log("Raw AI response:", content);
 
-    // Parse the JSON from the response
-    let summary;
-    try {
-      // Try to extract JSON from the response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        summary = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error("No JSON found in response");
+    const tryParseSoap = (raw: string) => {
+      // Strip code fences if present
+      const cleaned = raw.replace(/```json/gi, "```").replace(/```/g, "").trim();
+      try {
+        const parsed = JSON.parse(cleaned);
+        return parsed;
+      } catch {
+        const jsonMatch = raw.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            return JSON.parse(jsonMatch[0]);
+          } catch {
+            return null;
+          }
+        }
+        return null;
       }
-    } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", parseError);
-      // Return a structured fallback
-      summary = {
-        subjective: "Unable to parse AI response. Please try again.",
-        objective: "",
-        assessment: "",
-        plan: "",
-      };
+    };
+
+    const parsed = tryParseSoap(content);
+
+    if (!parsed || typeof parsed !== "object") {
+      return new Response(
+        JSON.stringify({
+          error: "Unable to parse AI response. Please retry.",
+          raw: content,
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    return new Response(JSON.stringify({ summary }), {
+    const soap = {
+      subjective: parsed.subjective || "",
+      objective: parsed.objective || "",
+      assessment: parsed.assessment || "",
+      plan: parsed.plan || "",
+    };
+
+    return new Response(JSON.stringify({ summary: soap }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("Error in generate-soap-notes function:", error);
+    console.error("Error in generate-soap function:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       {

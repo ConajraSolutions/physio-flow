@@ -14,15 +14,15 @@ import {
   Phone, 
   Mail, 
   FileText, 
-  History, 
   CreditCard,
   Stethoscope
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { BillingDialog } from "./BillingDialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { SessionDetailsDialog } from "./SessionDetailsDialog";
 
 interface Appointment {
   id: string;
@@ -35,6 +35,9 @@ interface Appointment {
   type: string;
   status: "scheduled" | "completed" | "cancelled" | "pending" | "in_progress";
   condition?: string;
+  kind?: "appointment" | "session";
+  appointmentId?: string;
+  sessionId?: string;
 }
 
 interface PatientDetailsDialogProps {
@@ -52,17 +55,17 @@ export function PatientDetailsDialog({
   const { toast } = useToast();
   const [billingOpen, setBillingOpen] = useState(false);
   const [startingSession, setStartingSession] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   if (!appointment) return null;
 
-  const handleGoToHistory = () => {
-    onOpenChange(false);
-    navigate(`/patients/${appointment.patientId}/history`);
-  };
+  const isCompleted = appointment.status === "completed" || appointment.kind === "session";
+  const appointmentId = appointment.appointmentId || appointment.id;
+  const sessionId = appointment.sessionId || appointment.id;
+  const isInProgress = appointment.status === "in_progress";
 
-  const handleBillingHistory = () => {
-    onOpenChange(false);
-    navigate(`/billing?patient=${appointment.patientId}`);
+  const handleReviewSession = () => {
+    setReviewOpen(true);
   };
 
   // `state` is an object that is sent over to the session workflow page, without
@@ -77,7 +80,7 @@ export function PatientDetailsDialog({
       const { error: updateError } = await supabase
         .from("appointments")
         .update({ status: "in_progress" })
-        .eq("id", appointment.id);
+        .eq("id", appointmentId);
 
       if (updateError) {
         throw updateError;
@@ -87,7 +90,7 @@ export function PatientDetailsDialog({
       const { data: existingSession, error: sessionLookupError } = await supabase
         .from("sessions")
         .select("id")
-        .eq("appointment_id", appointment.id)
+        .eq("appointment_id", appointmentId)
         .maybeSingle();
 
       if (sessionLookupError) {
@@ -102,7 +105,7 @@ export function PatientDetailsDialog({
           .from("sessions")
           .insert({
             patient_id: appointment.patientId,
-            appointment_id: appointment.id,
+            appointment_id: appointmentId,
             status: "in_progress",
             clinician_name: "Clinician",
           })
@@ -124,11 +127,11 @@ export function PatientDetailsDialog({
 
       onOpenChange(false); // close the dialog
 
-      navigate(`/session-workflow/${appointment.id}`, {
+      navigate(`/session-workflow/${appointmentId}`, {
         state: {
           patientId: appointment.patientId,
           patientName: appointment.patientName,
-          appointmentId: appointment.id,
+          appointmentId,
           sessionId,
           condition: appointment.condition,
         },
@@ -209,41 +212,48 @@ export function PatientDetailsDialog({
 
             {/* Action Buttons */}
             <div className="space-y-2">
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={handleStartSession}
-                disabled={startingSession}
-              >
-                <Stethoscope className="h-4 w-4 mr-2" />
-                {startingSession ? "Starting..." : "Start Session"}
-              </Button>
-              
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={handleGoToHistory}
-              >
-                <History className="h-4 w-4 mr-2" />
-                View Session History
-              </Button>
-              
-              <Button 
-                className="w-full justify-start" 
-                variant="outline"
-                onClick={handleBillingHistory}
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                Billing History
-              </Button>
-              
-              <Button 
-                className="w-full justify-start"
-                onClick={() => setBillingOpen(true)}
-              >
-                <CreditCard className="h-4 w-4 mr-2" />
-                Bill Insurance
-              </Button>
+              {!isCompleted && (
+                <Button 
+                  className="w-full justify-start" 
+                  variant="outline"
+                  onClick={handleStartSession}
+                  disabled={startingSession}
+                >
+                  <Stethoscope className="h-4 w-4 mr-2" />
+                  {startingSession ? "Starting..." : isInProgress ? "Continue Session" : "Start Session"}
+                </Button>
+              )}
+              {isCompleted ? (
+                <>
+                  <Button 
+                    className="w-full justify-start"
+                    variant="outline"
+                    onClick={handleReviewSession}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Review Session
+                  </Button>
+                  <Button 
+                    className="w-full justify-start"
+                    variant="secondary"
+                    disabled
+                    title="Billing for completed sessions coming soon"
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Bill Session (coming soon)
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button 
+                    className="w-full justify-start"
+                    onClick={() => setBillingOpen(true)}
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Bill Insurance
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </DialogContent>
@@ -253,7 +263,14 @@ export function PatientDetailsDialog({
         open={billingOpen}
         onOpenChange={setBillingOpen}
         patientName={appointment.patientName}
-        appointmentId={appointment.id}
+        appointmentId={appointmentId}
+      />
+
+      <SessionDetailsDialog
+        open={reviewOpen}
+        onOpenChange={setReviewOpen}
+        sessionId={isCompleted ? sessionId : null}
+        patientEmail={appointment.patientEmail}
       />
     </>
   );
