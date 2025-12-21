@@ -34,17 +34,13 @@ serve(async (req) => {
       });
     }
 
-    let systemPrompt = "";
-    let userPrompt = "";
-
-    if (editInstruction && currentSoap) {
-      systemPrompt = `You are a licensed physiotherapist. You are editing an existing set of SOAP notes.
+    const systemPrompt = `You are a licensed physiotherapist. Your job is to produce or revise SOAP notes.
 
 Rules:
-- Maintain the original SOAP format (Subjective, Objective, Assessment, Plan).
-- Modify only what is necessary to satisfy the revision request.
-- Preserve correct physiotherapy terminology.
-- Keep the notes concise, accurate, and clinically appropriate.
+- Always return structured SOAP notes (Subjective, Objective, Assessment, Plan).
+- Preserve physiotherapy terminology and clinical accuracy.
+- When revising, keep useful existing content and only change what is necessary.
+- Be concise but complete enough for clinical documentation.
 
 Output format: Return ONLY valid JSON with this exact structure:
 {
@@ -54,42 +50,19 @@ Output format: Return ONLY valid JSON with this exact structure:
   "plan": "..."
 }`;
 
-      userPrompt = `Current SOAP Notes:
-Subjective: ${currentSoap.subjective}
-Objective: ${currentSoap.objective}
-Assessment: ${currentSoap.assessment}
-Plan: ${currentSoap.plan}
-
-Revision Request: ${editInstruction}
-
-Apply the revision while keeping SOAP structure.`;
-    } else {
-      systemPrompt = `You are a licensed physiotherapist. Merge the transcript and clinician notes into a single, accurate set of SOAP notes.
-
-Rules:
-- Remove filler conversation and unrelated dialogue.
-- Extract clinically relevant details only.
-- Maintain physiotherapy terminology.
-- Keep Subjective, Objective, Assessment, and Plan clearly separated.
-- Include treatment goals and contributing factors if mentioned.
-
-Output format: Return ONLY valid JSON with this exact structure:
-{
-  "subjective": "Patient's reported symptoms, history, and concerns",
-  "objective": "Clinical findings, measurements, tests performed",
-  "assessment": "Clinical reasoning and diagnosis",
-  "plan": "Treatment plan, goals, and follow-up"
-}`;
-
-      userPrompt = `TRANSCRIPT:
-${transcript || "No transcript available"}
+    const userPrompt = `TRANSCRIPT:
+${transcript || "No transcript provided"}
 
 CLINICIAN NOTES:
-${clinicianNotes || "No additional notes"}
+${clinicianNotes || "No clinician notes provided"}
 
-Generate SOAP notes now.`;
-    }
+CURRENT SOAP NOTES:
+${currentSoap ? JSON.stringify(currentSoap) : "None. Generate from scratch."}
 
+USER GUIDANCE:
+${editInstruction || "No additional guidance"}
+
+Task: Produce the SOAP notes (or revise the current ones) following the system rules and any user guidance.`;
     console.log("Calling OpenAI API for SOAP note generation");
 
     const response = await fetch("https://api.openai.com/v1/chat/completions", {

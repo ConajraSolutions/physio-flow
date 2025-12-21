@@ -21,8 +21,6 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft,
-  ArrowRight,
   Search,
   Plus,
   X,
@@ -68,7 +66,7 @@ export function ExerciseSelectionStep({
   selectedExercises,
   onExercisesChange,
   onNext,
-  onBack,
+  onBack: _onBack,
 }: ExerciseSelectionStepProps) {
   const { toast } = useToast();
   const [exercises, setExercises] = useState<Exercise[]>([]);
@@ -496,17 +494,6 @@ export function ExerciseSelectionStep({
           </CardContent>
         </Card>
 
-        {/* Navigation */}
-        <div className="flex justify-between">
-          <Button variant="outline" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <Button onClick={onNext} disabled={selectedExercises.length === 0}>
-            Configure Exercises
-            <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
-        </div>
       </div>
 
       {/* Treatment Cart */}

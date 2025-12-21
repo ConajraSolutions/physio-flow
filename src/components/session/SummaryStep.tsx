@@ -6,7 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, ArrowRight, Sparkles, Check, Loader2 } from "lucide-react";
+import { Sparkles, Check, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -20,7 +20,7 @@ interface Summary {
 interface SummaryVersion {
   id: string;
   version: number;
-  edit_type: "initial_ai" | "blur_manual" | "ai_revision" | "final" | string;
+  edit_type: "initial_ai" | "blur_manual" | "ai_revision" | "ai_generated" | "final" | string;
   summary: Summary;
   created_at: string;
   prompt?: string;
@@ -47,16 +47,15 @@ export function SummaryStep({
 }: SummaryStepProps) {
   const { toast } = useToast();
 
-  type UiState = "initializing" | "idle" | "generating" | "revising" | "saving";
-  const [uiState, setUiState] = useState<UiState>("initializing");
-  const locked = uiState !== "idle";
+  type UiState = "idle" | "generating" | "saving";
+  const [uiState, setUiState] = useState<UiState>("idle");
+  const locked = uiState === "generating" || uiState === "saving";
 
   const [aiPrompt, setAiPrompt] = useState("");
   const [versions, setVersions] = useState<SummaryVersion[]>([]);
   const [activeVersionId, setActiveVersionId] = useState<string>("");
   const lastSavedSummaryRef = useRef<string>("");
   const aiInFlightRef = useRef(false);
-  const didAutoGenerateRef = useRef(false);
   const onSummaryChangeRef = useRef(onSummaryChange);
 
   useEffect(() => {
@@ -77,9 +76,10 @@ export function SummaryStep({
   });
 
   const loadSessionNotes = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId) {
+      return;
+    }
 
-    setUiState("initializing");
     try {
       const { data, error } = await supabase
         .from("session_notes")
@@ -113,8 +113,6 @@ export function SummaryStep({
         description: "Unable to load session notes.",
         variant: "destructive",
       });
-    } finally {
-      setUiState("idle");
     }
   }, [sessionId, toast]);
 
@@ -122,15 +120,22 @@ export function SummaryStep({
     loadSessionNotes();
   }, [loadSessionNotes]);
 
-  const createInitialAiNote = async () => {
+  const handleGenerateSummary = async () => {
     if (!sessionId) return;
     if (aiInFlightRef.current) return;
-    aiInFlightRef.current = true;
 
+    aiInFlightRef.current = true;
     setUiState("generating");
+
+    const userPrompt = aiPrompt.trim();
     try {
       const { data, error } = await supabase.functions.invoke("generate-soap-notes", {
-        body: { transcript, clinicianNotes },
+        body: {
+          transcript,
+          clinicianNotes,
+          currentSoap: versions[0]?.summary || summary,
+          editInstruction: userPrompt || undefined,
+        },
       });
 
       if (error) throw error;
@@ -154,7 +159,7 @@ export function SummaryStep({
             objective: generatedSummary.objective,
             assessment: generatedSummary.assessment,
             plan: generatedSummary.plan,
-            edit_type: "initial_ai",
+            edit_type: "ai_generated",
             is_temporary: true,
             version: nextVersion,
           })
@@ -164,10 +169,17 @@ export function SummaryStep({
         if (insertError) throw insertError;
 
         const newVersion = mapDbRowToVersion(inserted);
+        newVersion.prompt = userPrompt || undefined;
         setVersions(prev => [newVersion, ...prev]);
         setActiveVersionId(newVersion.id);
         onSummaryChange(newVersion.summary);
         lastSavedSummaryRef.current = JSON.stringify(newVersion.summary);
+        setAiPrompt("");
+
+        toast({
+          title: "Summary generated",
+          description: "AI summary created from consultation data.",
+        });
       } else {
         toast({
           title: "No notes returned",
@@ -187,88 +199,6 @@ export function SummaryStep({
       aiInFlightRef.current = false;
     }
   };
-
-  const handleAiRevision = async () => {
-    if (!aiPrompt.trim()) return;
-    if (!sessionId) return;
-    if (aiInFlightRef.current) return;
-
-    const revisionPromptUsed = aiPrompt.trim();
-    aiInFlightRef.current = true;
-    setUiState("revising");
-
-    try {
-      const { data, error } = await supabase.functions.invoke("generate-soap-notes", {
-        body: {
-          transcript,
-          clinicianNotes,
-          editInstruction: revisionPromptUsed,
-          currentSoap: summary,
-        },
-      });
-
-      if (error) throw error;
-
-      const soap = data?.summary || data?.soap;
-      if (soap) {
-        const revisedSummary: Summary = {
-          subjective: soap.subjective || summary.subjective,
-          objective: soap.objective || summary.objective,
-          assessment: soap.assessment || summary.assessment,
-          plan: soap.plan || summary.plan,
-        };
-
-        const nextVersion = (versions[0]?.version || 0) + 1;
-
-        const { data: inserted, error: insertError } = await supabase
-          .from("session_notes")
-          .insert({
-            session_id: sessionId,
-            subjective: revisedSummary.subjective,
-            objective: revisedSummary.objective,
-            assessment: revisedSummary.assessment,
-            plan: revisedSummary.plan,
-            edit_type: "ai_revision",
-            is_temporary: true,
-            version: nextVersion,
-          })
-          .select("id, subjective, objective, assessment, plan, edit_type, version, created_at")
-          .single();
-
-        if (insertError) throw insertError;
-
-        const newVersion = mapDbRowToVersion(inserted);
-        newVersion.prompt = revisionPromptUsed;
-        setVersions(prev => [newVersion, ...prev]);
-        setActiveVersionId(newVersion.id);
-        onSummaryChange(newVersion.summary);
-        lastSavedSummaryRef.current = JSON.stringify(newVersion.summary);
-        setAiPrompt("");
-
-        toast({
-          title: "Summary Updated",
-          description: "AI has revised the summary based on your instruction.",
-        });
-      } else {
-        toast({
-          title: "No notes returned",
-          description: "The AI did not return SOAP notes. Please try again.",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      console.error("Error revising summary:", error);
-      toast({
-        title: "Error",
-        description: "Failed to revise summary. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setUiState("idle");
-      aiInFlightRef.current = false;
-    }
-  };
-
   const handleManualEdit = (field: keyof Summary, value: string) => {
     const updatedSummary = { ...summary, [field]: value };
     onSummaryChange(updatedSummary);
@@ -327,46 +257,20 @@ export function SummaryStep({
 
   const canProceed = summary.subjective && summary.objective && summary.assessment && summary.plan;
 
-  // Auto-generate once when entering and no notes exist
-  useEffect(() => {
-    if (!sessionId) return;
-    if (uiState !== "idle") return;
-    if (versions.length > 0) return;
-    if (didAutoGenerateRef.current) return;
-
-    didAutoGenerateRef.current = true;
-    createInitialAiNote();
-  }, [sessionId, uiState, versions.length]);
-
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-      {locked && (
-        <div className="fixed inset-0 z-50 bg-background/60 backdrop-blur-sm flex items-center justify-center">
-          <div className="flex items-center gap-2 rounded-lg border bg-card px-4 py-3 shadow">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="text-sm text-muted-foreground">
-              {uiState === "initializing" && "Loading notes..."}
-              {uiState === "generating" && "Generating initial AI notes..."}
-              {uiState === "revising" && "Revising notes with AI..."}
-              {uiState === "saving" && "Saving..."}
-            </span>
-          </div>
-        </div>
-      )}
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
       {/* Main SOAP Editor */}
-      <div className="lg:col-span-3 space-y-6">
-        <Card variant="elevated">
+      <div className="lg:col-span-3 grid gap-6 grid-rows-[auto,1fr]">
+        <Card variant="elevated" className="h-full flex flex-col">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg">SOAP Note</CardTitle>
           </CardHeader>
           <CardContent>
-            {uiState !== "idle" && (
+            {locked && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>
-                  {uiState === "initializing" && "Loading notes..."}
                   {uiState === "generating" && "Waiting for AI response..."}
-                  {uiState === "revising" && "Waiting for AI response..."}
                   {uiState === "saving" && "Saving..."}
                 </span>
               </div>
@@ -426,72 +330,43 @@ export function SummaryStep({
           </CardContent>
         </Card>
 
-        {/* AI Revision Panel */}
-        <Card variant="elevated">
+        {/* Generate Summary Panel */}
+        <Card variant="elevated" className="h-full flex flex-col">
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">AI Revision</CardTitle>
+            <CardTitle className="text-lg">Generate Summary</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex-1 flex flex-col">
             <div className="flex gap-3">
               <Input
-                placeholder="Ask AI to revise... (e.g., 'make it more concise', 'add treatment goals')"
+                placeholder="Optional: add extra guidance for AI (e.g., emphasize goals)"
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAiRevision()}
-                disabled={locked}
+                onKeyDown={(e) => e.key === "Enter" && handleGenerateSummary()}
+                disabled={locked || !sessionId}
               />
-              <Button onClick={handleAiRevision} disabled={!aiPrompt.trim() || locked}>
+              <Button onClick={handleGenerateSummary} disabled={locked || !sessionId}>
                 <Sparkles className="h-4 w-4 mr-2" />
-                Revise
+                Generate Summary
               </Button>
             </div>
-            {versions.length === 0 && (
-              <div className="mt-4 flex items-center gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={createInitialAiNote}
-                  disabled={locked || !sessionId}
-                >
-                  {uiState === "generating" ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Generating initial summary...
-                    </>
-                  ) : (
-                    "Generate initial AI summary"
-                  )}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  Optional: generate a first draft. You can also type manually.
-                </p>
-              </div>
-            )}
+            <p className="text-xs text-muted-foreground mt-3">
+              We combine system context, transcript, clinician notes, and any existing notes. The
+              optional prompt lets you steer the output.
+            </p>
           </CardContent>
         </Card>
-
-        {/* Navigation */}
-        <div className="flex justify-between">
-          <Button variant="outline" onClick={onBack}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
-          </Button>
-          <Button onClick={onNext} disabled={!canProceed}>
-            Select Exercises
-            <ArrowRight className="h-4 w-4 ml-2" />
-          </Button>
-        </div>
       </div>
 
       {/* Version History Sidebar - Always Visible */}
-      <Card variant="elevated" className="lg:col-span-1">
+      <Card variant="elevated" className="lg:col-span-1 h-full flex flex-col">
         <CardHeader className="pb-4">
           <CardTitle className="text-lg">Version History</CardTitle>
           <p className="text-xs text-muted-foreground">
             Saves when you click away from the editor
           </p>
         </CardHeader>
-        <CardContent>
-          <ScrollArea className="h-[500px]">
+        <CardContent className="flex-1">
+          <ScrollArea className="h-full">
             {versions.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 No versions yet. Generate a summary to start.
@@ -509,7 +384,7 @@ export function SummaryStep({
                     onClick={() => restoreVersion(version)}
                   >
                     <div className="flex items-center justify-between mb-1">
-                      <Badge variant={version.edit_type === "ai_revision" ? "secondary" : version.edit_type === "initial_ai" ? "default" : "outline"}>
+                      <Badge variant={version.edit_type?.startsWith("ai") ? "secondary" : version.edit_type === "initial_ai" ? "default" : "outline"}>
                         {version.edit_type.replace("_", " ")}
                       </Badge>
                       {activeVersionId === version.id && (
@@ -519,7 +394,7 @@ export function SummaryStep({
                     <p className="text-xs text-muted-foreground">
                       v{version.version} - {new Date(version.created_at).toLocaleTimeString()}
                     </p>
-                    {version.edit_type === "ai_revision" && version.prompt && (
+                    {version.prompt && (
                       <p className="text-xs text-muted-foreground mt-1 italic truncate">
                         "{version.prompt}"
                       </p>

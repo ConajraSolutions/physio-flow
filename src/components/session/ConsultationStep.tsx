@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Mic, MicOff, Clock, ArrowRight, User, AlertCircle, Lock } from "lucide-react";
+import { Mic, MicOff, Clock, User, AlertCircle, Lock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ConsultationStepProps {
@@ -292,13 +292,6 @@ export function ConsultationStep({
             rows={16}
             className="resize-none"
           />
-
-          <div className="flex justify-end pt-4">
-            <Button onClick={onNext} disabled={!canProceed}>
-              Generate Summary
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </div>

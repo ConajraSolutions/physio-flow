@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
-  ArrowLeft,
   Send,
   Dumbbell,
   User,
@@ -79,7 +78,7 @@ export function FinalizeStep({
   appointmentId,
   sessionId,
   sessionData,
-  onBack,
+  onBack: _onBack,
   onComplete,
 }: FinalizeStepProps) {
   const { toast } = useToast();
@@ -671,11 +670,7 @@ export function FinalizeStep({
             </div>
           </div>
 
-          <div className="flex justify-between pt-2">
-            <Button variant="outline" onClick={onBack} disabled={isSending || finalizing}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
+          <div className="flex justify-end pt-2">
             <Button onClick={handleCompleteSession} disabled={finalizing || !sessionId}>
               {finalizing ? (
                 <>

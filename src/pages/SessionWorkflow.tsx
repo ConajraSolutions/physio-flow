@@ -72,6 +72,10 @@ export default function SessionWorkflow() {
     }
   };
 
+  const handleStepSelect = (stepId: number) => {
+    setCurrentStep(stepId);
+  };
+
   const handleBack = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
@@ -171,7 +175,11 @@ export default function SessionWorkflow() {
           <div className="flex items-center justify-between">
             {steps.map((step, index) => (
               <div key={step.id} className="flex items-center flex-1">
-                <div className="flex flex-col items-center">
+                <button
+                  type="button"
+                  onClick={() => handleStepSelect(step.id)}
+                  className="flex flex-col items-center focus:outline-none"
+                >
                   <div
                     className={`flex h-10 w-10 items-center justify-center rounded-full border-2 transition-colors ${
                       currentStep > step.id
@@ -199,7 +207,7 @@ export default function SessionWorkflow() {
                       {step.description}
                     </p>
                   </div>
-                </div>
+                </button>
                 {index < steps.length - 1 && (
                   <div
                     className={`flex-1 h-0.5 mx-4 ${
@@ -214,6 +222,16 @@ export default function SessionWorkflow() {
 
         {/* Step Content */}
         <div className="animate-slide-up">{renderStep()}</div>
+
+        {/* Quick navigation controls */}
+        <div className="mt-6 flex justify-between">
+          <Button variant="outline" onClick={handleBack} disabled={currentStep === 1}>
+            Back
+          </Button>
+          <Button onClick={handleNext} disabled={currentStep === steps.length}>
+            Next
+          </Button>
+        </div>
       </div>
     </MainLayout>
   );
